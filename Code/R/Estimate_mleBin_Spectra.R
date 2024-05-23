@@ -1,0 +1,178 @@
+# Process Spectra using Northeast Trawl Survey
+
+
+####  Packages  ####
+library(tidyverse)
+library(gmRi)
+library(sizeSpectra)
+library(tidyquant)
+
+
+# Load processing functions
+source(here::here("Code/R/Processing_Functions.R"))
+
+
+
+####  Load + Tidy Data  ####
+
+# Load data from local directory
+#Path where "survdat" & spp_keys.csv data exists
+data_path <- here::here("Data/")
+
+
+# Just read it in, no* species filtering yet
+# General tidying only, removal of strata outside our study area 
+# (removes inshore and rarely/inconsistently sampled strata etc.)
+trawl_basic <- tidy_nefsc_trawl(data_path = data_path)
+
+
+# Minor tidying:
+# Filter to spring and fall only
+#  Drop duplicate length*species*, why do these exist? 34 rows duplicated - dropped
+trawl_basic <- trawl_basic%>% 
+  filter(season %in% c("Spring", "Fall")) %>% 
+  distinct(id, comname, catchsex, length_cm, .keep_all = T) 
+
+
+# Create a second dataset containing
+# species with l-w coeffficients from wigley 06
+trawl_wigley <- add_wigley_lw(trawl_basic, data_path = data_path)
+
+
+
+####  Filter to Only Finfish Species for Analysis  ####
+
+# --- quick approach, remove things measured in mm
+
+# So if the species is a decapod or shellfish then they estimate length to the nearest mm. 
+# Otherwise length is to the nearest cm. So this is important to distinguish for lobster vs. finfish predators.
+crusts <- trawl_basic %>%
+  mutate(length_char = as.character(length_cm)) %>%
+  filter(grepl("[.]", length_char)) %>%
+  distinct(comname) %>% 
+  pull(comname)
+crusts
+
+# Drop crustaceans
+# Wigley is all fish, not necessary
+finfish_trawl <- filter(trawl_basic, comname %not in% crusts)
+
+
+# OR be thorough -- join taxa info, subset finfish families
+
+
+
+
+
+#### Estimate Length Spectra  ####
+
+
+
+
+# All finfish length_spectra
+length_binspectra <- group_binspecies_mle(
+  ss_input = trawl_basic, 
+  grouping_vars = c("est_year", "season", "survey_area"), 
+  abundance_vals = "numlen_adj", 
+  size_vals = "length_cm", 
+  isd_xmin = 1, 
+  isd_xmax = NULL, 
+  global_min = TRUE, 
+  global_max = FALSE, 
+  bin_width = 1)
+
+
+
+# Plot it
+length_binspectra %>% 
+  filter(season %in% c("Spring", "Fall")) %>% 
+  mutate(yr_num = as.numeric(as.character(est_year))) %>% 
+  ggplot(aes(yr_num, b, color = season)) +
+  geom_point(size = 1, alpha = 0.6) +
+  geom_ma(aes(linetype = "5-Year Moving Average"),n = 5, ma_fun = SMA) +
+  geom_smooth(method = "lm", linewidth = 1, se = F, 
+              aes(linetype = "Regression Fit")) +
+  facet_wrap(~survey_area) +
+  scale_color_gmri() +
+  labs(title = "Length Spectra Slope - MLE Bins Method",
+       subtitle = "Enforced xmin = 1, xmax = max(length_cm + 1)",
+       y = "b",
+       x = "Year",
+       color = "Season")
+
+
+
+
+# Wigley species length spectra
+length_binspectra_wigley <- group_binspecies_mle(
+    ss_input = trawl_wigley,
+    grouping_vars = c("est_year", "season", "survey_area"),
+    abundance_vals = "numlen_adj",
+    size_vals = "length_cm",
+    isd_xmin = 1,
+    isd_xmax = NULL,
+    global_min = TRUE,
+    global_max = FALSE,
+    bin_width = 1)
+
+length_binspectra_wigley %>% 
+  filter(season %in% c("Spring", "Fall")) %>% 
+  mutate(yr_num = as.numeric(as.character(est_year))) %>% 
+  ggplot(aes(yr_num, b, color = season)) +
+  geom_point(size = 1, alpha = 0.6) +
+  geom_ma(aes(linetype = "5-Year Moving Average"),n = 5, ma_fun = SMA) +
+  geom_smooth(method = "lm", linewidth = 1, se = F, 
+              aes(linetype = "Regression Fit")) +
+  facet_wrap(~survey_area) +
+  scale_color_gmri() +
+  labs(title = "Length Spectra Slope - MLE Bins Method Wigley",
+       subtitle = "Enforced xmin = 1, xmax = max(length_cm + 1)",
+       y = "b",
+       x = "Year",
+       color = "Season")
+
+
+
+
+####  Save Length Spectra  ####
+write_csv(length_binspectra, here::here("Data/processed/finfish_length_spectra.csv"))
+write_csv(length_binspectra_wigley, here::here("Data/processed/wigley_species_length_spectra.csv"))
+
+
+
+
+####  Biomass Spectra  ####
+# Not functional here 5/23/2024
+
+# For the Wigley species we can estimate individual weight from length
+# then estimate size spectra using individual weights
+
+bodymass_binspectra_wigley <- group_binspecies_mle(
+  ss_input = trawl_wigley,
+  grouping_vars = c("est_year", "season", "survey_area"),
+  abundance_vals = "numlen_adj",
+  size_vals = "length_cm",
+  isd_xmin = 1,
+  isd_xmax = NULL,
+  global_min = TRUE,
+  global_max = FALSE,
+  bin_width = 1)
+
+
+
+
+bodymass_binspectra_wigley %>% 
+  filter(season %in% c("Spring", "Fall")) %>% 
+  mutate(yr_num = as.numeric(as.character(est_year))) %>% 
+  ggplot(aes(yr_num, b, color = season)) +
+  geom_point(size = 1, alpha = 0.6) +
+  geom_ma(aes(linetype = "5-Year Moving Average"),n = 5, ma_fun = SMA) +
+  geom_smooth(method = "lm", linewidth = 1, se = F, 
+              aes(linetype = "Regression Fit")) +
+  facet_wrap(~survey_area) +
+  scale_color_gmri() +
+  labs(title = "Length Spectra Slope - MLE Bins Method Wigley",
+       subtitle = "Enforced xmin = 1, xmax = max(length_cm + 1)",
+       y = "b",
+       x = "Year",
+       color = "Season")
