@@ -132,11 +132,19 @@ tidy_nefsc_trawl <- function(data_path){
     biomass_kg = biomass,
     length_cm  = length)
   
-  # c. Replace 0's that must be greater than 0
-  trawldat <- dplyr::mutate(
-    .data = trawldat,
-    biomass_kg = ifelse(biomass_kg == 0 & abundance > 0, 0.0001, biomass_kg),
-    abundance  = ifelse(abundance == 0 & biomass_kg > 0, 1, abundance))
+  # # c. Replace 0's that must be greater than 0
+  # trawldat <- dplyr::mutate(
+  #   .data = trawldat,
+  #   biomass_kg = ifelse(biomass_kg == 0 & abundance > 0, 0.0001, biomass_kg),
+  #   abundance  = ifelse(abundance == 0 & biomass_kg > 0, 1, abundance))
+  
+  
+  # c. EDIT: Remove these^ because downstream problems
+  no_biomass <- trawldat$biomass_kg == 0 & trawldat$abundance > 0
+  no_abundance <- trawldat$abundance == 0 & trawldat$biomass_kg > 0
+  trawldat %>% 
+    filter(!no_biomass,
+           !no_abundance)
   
   
   #### 5. Row Filtering  ####
@@ -381,48 +389,65 @@ add_wigley_lw <- function(tidy_trawl, data_path){
 #___________________________####
 
 
-# ----- Make it a function  ------------
+# ----- Processing sizeSpectra for Groups  ------------
 
 
 # Code to do mle for one group of data:
 
 
 
-#' @title {MLE-Bins Size Spectra Estimation}
+
+
+#' @title {MLE-Bins Size Spectra Estimation - Length or Weight}
 #'
 #' @param ss_input Dataframe containing a column of abundance and a column of sizes
 #' @param grouping_vars string identifiers of columns to group_by prior to analysis
 #' @param abundance_vals string indicating column of abundances
 #' @param size_vals string indicating column with individual length/weight data
+#' @param use_weight FALSE
 #' @param isd_xmin lower limit for size distribution fitting
 #' @param isd_xmax upper limit for size distribution fitting
 #' @param global_min T/F Enforce a minimum size across all groups
 #' @param global_max T/F Enforce a maximum size across all groups
+#' @param vdiff value defining  range over which to test the negative log-likelihood
+#'   to construct the confidence interval; range is `MLE` \eqn{\pm} `vecDiff`. Default is 0.5 and a symmetric
+#'   range is tested for fitting size spectra, since for movement data
+#'   sets in Table 2 of Edwards (2011; 92(6):1247-1257) the intervals were
+#'   symmetric, so symmetric seems a good start.
 #'
 #' @return
 #' @export
 #'
 #' @examples
-group_binspecies_mle <-  function(
+group_binspecies_spectra <-  function(
     ss_input, 
     grouping_vars, 
     abundance_vals = "numlen_adj",
-    size_vals = "length_cm",
+    length_vals = "length_cm",
+    use_weight = FALSE,
     isd_xmin = NULL,
     isd_xmax = NULL,
     global_min = TRUE,
     global_max = TRUE,
-    bin_width = 1){
+    bin_width = 1,
+    vdiff = 2){
   
   # 1. toggle which abundance/weight columns to use with switch
   .abund_col  <- sym(abundance_vals)
-  .size_col   <- sym(size_vals)
+  .size_col   <- sym(length_vals)
   .group_cols <- grouping_vars
-  .agg_cols   <- c(.group_cols, "comname", size_vals)
+  .agg_cols   <- c(.group_cols, "comname", length_vals)
   
   
-  # 2. Select only the columns we need:
-  # Aggregate numbers by size 
+  
+  # Add min/max weight for size bins if using weight
+  if(use_weight == TRUE){
+    # Make sure they come through the aggregation step
+    .agg_cols <- c(.agg_cols, "wmin_g", "wmax_g")
+  }
+          
+  
+  # 2. Aggregate numbers by size 
   # within the groups we are measuring:
   ss_input_summs <- ss_input %>% 
     group_by(!!!syms(.agg_cols)) %>% 
@@ -432,16 +457,30 @@ group_binspecies_mle <-  function(
   
   
   # Create a group column that we can map() through
-  # Drop columns we don't need, rename to match edwards code 
   # edwards calls this df databinforlike in eightMethods()
   mle_input <- ss_input_summs  %>% 
-    unite(col = "group_var", {{.group_cols}}, sep = "-", remove = FALSE, na.rm = FALSE)  %>% 
-    select(
-      group_var, 
-      Number, 
-      wmin = !!.size_col)  %>% 
+    unite(col = "group_var", {{.group_cols}}, sep = "-", remove = FALSE, na.rm = FALSE)  
+  
+  
+  # Rename important columns to use either length or weight bins
+  # expects "wmin" and "wmax"
+  
+  # For lengths
+  if(use_weight == FALSE){
     # Set up the min/max for the bins
-    mutate(wmax = wmin + bin_width)
+    mle_input <- mle_input %>% 
+      rename(wmin = !!.size_col)  %>% 
+      mutate(wmax = wmin + bin_width)
+  }
+  
+  # For weights
+  if(use_weight == TRUE){
+    # Set up the min/max for the bins
+    mle_input <- mle_input %>% 
+      rename(wmin = wmin_g,
+             wmax = wmax_g)
+  }
+
   
   #------ Optional - Set Global Constants
   
@@ -453,6 +492,17 @@ group_binspecies_mle <-  function(
   if(global_max == TRUE){
     if(is.null(isd_xmax)){ isd_xmax <- max(mle_input$wmax, na.rm = T)}
   }
+  
+  
+  # Subset to just the columns needed to speed it up a touch
+  mle_input <- mle_input %>% 
+    dplyr::select(
+      group_var,
+      SpecCode = comname,
+      wmin,
+      wmax,
+      Number)
+  
   
   
   #------ Loop through Groups 
@@ -475,7 +525,7 @@ group_binspecies_mle <-  function(
         # Filter the range of sizes we want to include
         ss_input_i <- ss_input_i %>% 
           filter(wmin >= isd_xmin,
-                 wmax <= isd_xmax)
+                 wmin <= isd_xmax)
         
         # Total individuals in subgroup
         n_i <- sum(ceiling(ss_input_i$Number) )
@@ -489,7 +539,7 @@ group_binspecies_mle <-  function(
           n                 = n_i,
           xmin              = isd_xmin,
           xmax              = isd_xmax, 
-          vecDiff = 2)
+          vecDiff           = vdiff )
         
         # Put it into a dataframe to rejoin neatly
         mle_group_results <- data.frame(
@@ -500,148 +550,8 @@ group_binspecies_mle <-  function(
           n = n_i,
           b = group_est$MLE,
           confMin = group_est$conf[1],
-          confMax = group_est$conf[2])
-        
-        
-        # Process C and standard error
-        mle_group_results <- mle_group_results %>% 
-          mutate(
-            stdErr = (abs(confMin - b) + abs(confMax - b)) / (2 * 1.96),
-            C = (b != -1 ) * (b + 1) / ( xmax_fit^(b + 1) - xmin_fit^(b + 1) ) + (b == -1) * 1 / ( log(xmax_fit) - log(xmin_fit)))
-        return(mle_group_results)}, 
-      
-      # Name the column with group ID
-      .id = "group_var") %>% 
-    
-    # Decompose the group ID back into original columns
-    separate(
-      group_var, 
-      sep = "-", 
-      into = grouping_vars, 
-      remove = F)
-  
-  
-  # Spit it out
-  return(group_results_df)
-  
-}
-
-
-
-
-#' @title {MLE-Bins Size Spectra Estimation}
-#'
-#' @param ss_input Dataframe containing a column of abundance and a column of sizes
-#' @param grouping_vars string identifiers of columns to group_by prior to analysis
-#' @param abundance_vals string indicating column of abundances
-#' @param size_vals string indicating column with individual length/weight data
-#' @param isd_xmin lower limit for size distribution fitting
-#' @param isd_xmax upper limit for size distribution fitting
-#' @param global_min T/F Enforce a minimum size across all groups
-#' @param global_max T/F Enforce a maximum size across all groups
-#'
-#' @return
-#' @export
-#'
-#' @examples
-group_binspecies_bodymass_spectra <-  function(
-    ss_input, 
-    grouping_vars, 
-    abundance_vals = "numlen_adj",
-    size_vals = "length_cm",
-    isd_xmin = NULL,
-    isd_xmax = NULL,
-    global_min = TRUE,
-    global_max = TRUE,
-    bin_width = 1){
-  
-  # 1. toggle which abundance/weight columns to use with switch
-  .abund_col  <- sym(abundance_vals)
-  .size_col   <- sym(size_vals)
-  .group_cols <- grouping_vars
-  .agg_cols   <- c(.group_cols, "comname", size_vals)
-  
-  
-  # 2. Select only the columns we need:
-  # Aggregate numbers by size 
-  # within the groups we are measuring:
-  ss_input_summs <- ss_input %>% 
-    group_by(!!!syms(.agg_cols)) %>% 
-    summarise(
-      Number = sum(!!.abund_col),
-      .groups = "drop")
-  
-  
-  # Create a group column that we can map() through
-  # Drop columns we don't need, rename to match edwards code 
-  # edwards calls this df databinforlike in eightMethods()
-  mle_input <- ss_input_summs  %>% 
-    unite(col = "group_var", {{.group_cols}}, sep = "-", remove = FALSE, na.rm = FALSE)  %>% 
-    select(
-      group_var, 
-      Number, 
-      wmin = !!.size_col)  %>% 
-    # Set up the min/max for the bins
-    mutate(wmax = wmin + bin_width)
-  
-  #------ Optional - Set Global Constants
-  
-  # Power-law limits:
-  # set left bound & right bounds, grams
-  if(global_min == TRUE){
-    if(is.null(isd_xmin)){ isd_xmin <- min(mle_input$wmin, na.rm = T)}
-  }
-  if(global_max == TRUE){
-    if(is.null(isd_xmax)){ isd_xmax <- max(mle_input$wmax, na.rm = T)}
-  }
-  
-  
-  #------ Loop through Groups 
-  group_results_df <- mle_input %>% 
-    split(.$group_var) %>% 
-    map_df(
-      function(ss_input_i){
-        
-        # 3. Tune subgroup the power-law limits:
-        # set left bound & right bounds, grams/cm
-        min_i <- min(ss_input_i$wmin, na.rm = T)
-        max_i <- max(ss_input_i$wmax, na.rm = T)
-        if(global_min == FALSE){
-          if(is.null(isd_xmin)){ isd_xmin <- min_i}
-        }
-        if(global_max == FALSE){
-          if(is.null(isd_xmax)){ isd_xmax <- max_i}
-        }
-        
-        # Filter the range of sizes we want to include
-        ss_input_i <- ss_input_i %>% 
-          filter(wmin >= isd_xmin,
-                 wmax <= isd_xmax)
-        
-        # Total individuals in subgroup
-        n_i <- sum(ceiling(ss_input_i$Number) )
-        
-        # Do the exponent estimation for group i
-        group_est <- calcLike(
-          negLL.fn          = negLL.PLB.bins.species,
-          p                 = -1.9,
-          suppress.warnings = TRUE,
-          dataBinForLike    = ss_input_i,
-          n                 = n_i,
-          xmin              = isd_xmin,
-          xmax              = isd_xmax, 
-          vecDiff = 2)
-        
-        # Put it into a dataframe to rejoin neatly
-        mle_group_results <- data.frame(
-          xmin_fit = isd_xmin,
-          xmax_fit = isd_xmax,
-          xmin_actual = min_i,
-          xmax_actual = max_i,
-          n = n_i,
-          b = group_est$MLE,
-          confMin = group_est$conf[1],
-          confMax = group_est$conf[2])
+          confMax = group_est$conf[2],
+          spectra_type = ifelse(use_weight, "bodymass", "length"))
         
         
         # Process C and standard error
