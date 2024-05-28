@@ -42,7 +42,7 @@ finfish_trawl %>%
     isd_xmax = NULL,
     global_max = FALSE,
     bin_width = 1, 
-    vdiff = 10)
+    vdiff = 4)
 
 
 
@@ -59,7 +59,7 @@ length_binspectra <- group_binspecies_spectra(
   isd_xmax = NULL,
   global_max = FALSE,
   bin_width = 1, 
-  vdiff = 5)
+  vdiff = 4)
 
 
 # Plot it
@@ -113,6 +113,22 @@ length_binspectra_wigley %>%
        x = "Year",
        color = "Season")
 
+# # Consistent with what we got last time? yes, cool
+# lbw_save <- read_csv(here::here("Data/processed/wigley_species_length_spectra.csv"))
+# lbw_save %>% 
+#   mutate(yr_num = as.numeric(as.character(est_year))) %>% 
+#   ggplot(aes(yr_num, b, color = season)) +
+#   geom_point(size = 1, alpha = 0.6) +
+#   #geom_ma(aes(linetype = "5-Year Moving Average"),n = 5, ma_fun = SMA) +
+#   geom_smooth(method = "lm", linewidth = 1, se = F, 
+#               aes(linetype = "Regression Fit")) +
+#   facet_wrap(~survey_area) +
+#   scale_color_gmri() +
+#   labs(title = "Length Spectra Slope - MLE Bins Method Wigley - saved",
+#        subtitle = "Enforced xmin = 1, xmax = max(length_cm + 1)",
+#        y = "b",
+#        x = "Year",
+#        color = "Season")
 
 
 
