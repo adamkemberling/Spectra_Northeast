@@ -392,7 +392,71 @@ add_wigley_lw <- function(tidy_trawl, data_path){
 # ----- Processing sizeSpectra for Groups  ------------
 
 
-# Code to do mle for one group of data:
+# Tweaking the likelihood function:
+# It seems to be solving to -1 in a strange way, not sure if its the fail state of 
+# too small a vecdiff or, NA's not filtered
+
+# ##' Calculate the negative log-likelihood of `b` for the PLB model, given
+# ##'  species-specific binned data (MLEbins method)
+# ##'
+# ##' Calculate the negative log-likelihood of *b* for the PLB model,
+# ##'  given binned data where the bins can be different for each species, namely
+# ##'  the MLEbins method derived as equations (S.18) and (S.26) in MEPS paper.
+# ##'  Returns the negative log-likelihood.
+# ##'  Will be called by `nlm()` or similar, but `xmin` and `xmax` will just be estimated
+# ##'  as the min of lowest bin and max of the largest bin (i.e. their MLEs),
+# ##'  no need to do numerically. See Supplementary Material of MEPS paper for derivation, and
+# ##'  the vignettes for example use.
+# ##'
+# ##' @param b value of `b` for which to calculate the negative log-likelihood
+# ##' @param dataBinForLike table data frame (tbl_df) where each row is the count in a bin
+# ##'  of a species, and columns (and corresponding mathematical notation in MEPS
+# ##'   Supplementary Material) are:
+# ##'  * `SpecCode`: code for each species, `s`
+# ##'  * `wmin`: lower bound of the bin, `w_\{sj\}` where `j` is the bin number
+# ##'  * `wmax`: upper bound of the bin, `w_\{s, j+1\}`
+# ##'  * `Number`: count in that bin for that species, `d_\{sj\}`
+# ##'  For each species the first and last bins must be non-empty, i.e.
+# ##'   `w_\{s1\}, w_\{s,J_s +1\} > 0`.
+# ##' @param n total number of counts `n = \sum_\{sj\} d_\{sj\}` over all `s` and `j`
+# ##' @param xmin maximum likelihood estimate for `xmin`, `xmin = min_\{sj\}
+# ##'   w_\{s, 1\}`
+# ##' @param xmax maximum likelihood estimate for `xmax`, `xmax = max_\{sj\}
+# ##'   w_\{s, J_s+1\}`
+# ##' @return  negative log-likelihood of the parameters given the data
+# ##' @author Andrew Edwards
+# ##' @export
+# negLL.PLB.bins.species.new = function(
+#     b, dataBinForLike, n, xmin, xmax){
+#   # Would be useful to put into a pre-processing function:
+#   #    if(xmin <= 0 | xmin >= xmax | length(d) != J | length(w) != J+1 |
+#   #       d[1] == 0 | d[J] == 0 | min(d) < 0)
+#   #       stop("Parameters out of bounds in negLL.PLB.bins.species")
+#   # if(b != -1)
+#   # {  
+#   #   # From MEPS equation (S.18), first calculate each component in the
+#   #   # summations and then sum them:
+#   #   temp2 = dplyr::mutate(
+#   #     dataBinForLike,
+#   #     comp2 = Number * log( abs( wmax^(b+1) - wmin^(b+1) ) ) )
+#   #   comp2Sum = sum(temp2$comp2)
+#   #   
+#   #   logLL = - n * log( abs( xmax^(b+1) - xmin^(b+1) ) ) + comp2Sum
+#   #   neglogLL = - logLL      # Negative log-likelihood
+#   # } else
+#   # {
+#     # Not fully tested, 
+#     # but should work:
+#     temp2 = dplyr::mutate(
+#       dataBinForLike,
+#       comp2 = Number * log( log(wmax) - log(wmin) ) )
+#     comp2Sum = sum(temp2$comp2)
+#     
+#     logLL = - n * log( abs( xmax^(b+1) - xmin^(b+1) ) ) + comp2Sum
+#     neglogLL = - logLL      # Negative log-likelihood
+#   
+#   return(neglogLL)
+# }
 
 
 
@@ -430,7 +494,8 @@ group_binspecies_spectra <-  function(
     global_min = TRUE,
     global_max = TRUE,
     bin_width = 1,
-    vdiff = 2){
+    vdiff = 1){
+  
   
   # 1. toggle which abundance/weight columns to use with switch
   .abund_col  <- sym(abundance_vals)
@@ -459,26 +524,38 @@ group_binspecies_spectra <-  function(
   # Create a group column that we can map() through
   # edwards calls this df databinforlike in eightMethods()
   mle_input <- ss_input_summs  %>% 
-    unite(col = "group_var", {{.group_cols}}, sep = "-", remove = FALSE, na.rm = FALSE)  
+    unite(
+      col = "group_var", 
+      {{.group_cols}}, 
+      sep = "-", 
+      remove = TRUE, 
+      na.rm = TRUE)  
   
   
-  # Rename important columns to use either length or weight bins
-  # expects "wmin" and "wmax"
+  # 2. Rename important columns to use either length or weight bins
+  # the calclike function expects: 
+  # "wmin" and "wmax" for the bin min/max
+  # SpecCode for species ID
+  # Number for number of individuals within the bins
   
   # For lengths
   if(use_weight == FALSE){
+    
     # Set up the min/max for the bins
     mle_input <- mle_input %>% 
       rename(wmin = !!.size_col)  %>% 
-      mutate(wmax = wmin + bin_width)
+      mutate(wmax = wmin + bin_width) %>% 
+      drop_na(wmin, wmax, Number)
   }
   
   # For weights
   if(use_weight == TRUE){
+    
     # Set up the min/max for the bins
     mle_input <- mle_input %>% 
       rename(wmin = wmin_g,
-             wmax = wmax_g)
+             wmax = wmax_g) %>% 
+      drop_na(wmin, wmax, Number)
   }
 
   
@@ -493,6 +570,8 @@ group_binspecies_spectra <-  function(
     if(is.null(isd_xmax)){ isd_xmax <- max(mle_input$wmax, na.rm = T)}
   }
   
+  #------ End optional
+  
   
   # Subset to just the columns needed to speed it up a touch
   mle_input <- mle_input %>% 
@@ -504,6 +583,7 @@ group_binspecies_spectra <-  function(
       Number)
   
   
+
   
   #------ Loop through Groups 
   group_results_df <- mle_input %>% 
@@ -515,6 +595,7 @@ group_binspecies_spectra <-  function(
         # set left bound & right bounds, grams/cm
         min_i <- min(ss_input_i$wmin, na.rm = T)
         max_i <- max(ss_input_i$wmax, na.rm = T)
+        
         if(global_min == FALSE){
           if(is.null(isd_xmin)){ isd_xmin <- min_i}
         }
@@ -525,21 +606,34 @@ group_binspecies_spectra <-  function(
         # Filter the range of sizes we want to include
         ss_input_i <- ss_input_i %>% 
           filter(wmin >= isd_xmin,
-                 wmin <= isd_xmax)
+                 wmin <= isd_xmax) %>% 
+         mutate(Number = ceiling(Number))
         
         # Total individuals in subgroup
-        n_i <- sum(ceiling(ss_input_i$Number) )
+        #n_i <- sum(ceiling(ss_input_i$Number) )
+        n_i <- sum(ss_input_i$Number)
+        
+        # return(
+        #   list(
+        #     n = n_i,
+        #     xmin = isd_xmin,
+        #     xmax = isd_xmax,
+        #     vdiff = vdiff
+        #   )
+        # )
         
         # Do the exponent estimation for group i
         group_est <- calcLike(
+          #negLL.fn          = negLL.PLB.bins.species.new,
           negLL.fn          = negLL.PLB.bins.species,
-          p                 = -1.9,
           suppress.warnings = TRUE,
           dataBinForLike    = ss_input_i,
+          p                 = 1.9,
           n                 = n_i,
           xmin              = isd_xmin,
           xmax              = isd_xmax, 
-          vecDiff           = vdiff )
+          vecDiff           = vdiff)
+        
         
         # Put it into a dataframe to rejoin neatly
         mle_group_results <- data.frame(
@@ -559,6 +653,7 @@ group_binspecies_spectra <-  function(
           mutate(
             stdErr = (abs(confMin - b) + abs(confMax - b)) / (2 * 1.96),
             C = (b != -1 ) * (b + 1) / ( xmax_fit^(b + 1) - xmin_fit^(b + 1) ) + (b == -1) * 1 / ( log(xmax_fit) - log(xmin_fit)))
+        
         return(mle_group_results)}, 
       
       # Name the column with group ID
@@ -569,7 +664,7 @@ group_binspecies_spectra <-  function(
       group_var, 
       sep = "-", 
       into = grouping_vars, 
-      remove = F)
+      remove = T)
   
   
   # Spit it out
@@ -578,5 +673,127 @@ group_binspecies_spectra <-  function(
 }
 
 
+
+###___________________________####
+
+
+#### Processing Mean+Median Sizes  ####
+
+
+
+# Get weighted mean lengths and weights using 
+# tow-level and total stratified abundances
+# Note: uses numlen because individuals were ID'd and measured
+group_size_metrics <- function(
+    size_data, 
+    .group_cols = "Year", 
+    .abund_col = "numlen_adj",
+    .length_col = "length_cm",
+    has_weights = FALSE,
+    .weight_col = "ind_weight_kg"){
+  
+  
+  # 1. Build group_level from desired group columns
+  group_size_data <- size_data %>% 
+    drop_na({{.abund_col}}, {{.length_col}}) %>% 
+    unite(
+      col = "group_var", 
+      {{.group_cols}}, 
+      sep = "-", 
+      remove = TRUE, 
+      na.rm = TRUE)
+  
+  
+  # Run Min/Max/Avg. Size for the group
+  group_results <- group_size_data %>% 
+    split(.$group_var) %>% 
+    imap_dfr(function(group_data, group_name){
+      
+      # Length (measured for all)
+      mean_len    <- weighted.mean(
+        group_data[, .length_col], 
+        group_data[, .abund_col], 
+        na.rm = T)
+      med_len     <- matrixStats::weightedMedian(
+        group_data[, .length_col], 
+        group_data[, .abund_col], 
+        na.rm = T)
+      min_len     <- min(group_data[, .length_col], na.rm = T)
+      max_len     <- max(group_data[, .length_col], na.rm = T)
+      
+      
+      
+      # Weights (estimated from length w/ wigley data)
+      if(has_weights == TRUE){
+        group_data <- drop_na(group_data, {{.weight_col}})
+        
+        mean_weight <- weighted.mean(
+          group_data[,.weight_col], 
+          group_data[, .abund_col], 
+          na.rm = T)
+        med_weight  <- matrixStats::weightedMedian(
+          group_data[, .weight_col], 
+          group_data[, .abund_col], 
+          na.rm = T)
+        min_weight  <- min(group_data[, .weight_col], na.rm = T)
+        max_weight  <- max(group_data[, .weight_col], na.rm = T)
+      }
+      
+      # Abundance totals
+      total_abund <- sum(group_data[, .abund_col], na.rm = T)
+      
+      # Total number of species
+      num_species <- group_data %>% 
+        filter(is.na(comname) == FALSE) %>% 
+        distinct(comname) %>% 
+        nrow()
+      
+      # Put in table
+      table_out <- data.frame(
+        "group_var"        = group_name,
+        "n_species"        = num_species,  
+        "numlen_adj_total" = total_abund,
+        "mean_len_cm"      = mean_len,
+        "med_len_cm"       = med_len,
+        "min_len_cm"       = min_len,
+        "max_len_cm"       = max_len)
+      
+      # Add weight information
+      if(has_weights == TRUE){
+        table_out <- bind_cols(
+          table_out,
+          data.frame(
+            "mean_wt_kg"       = mean_weight,
+            "med_wt_kg"        = med_weight,
+            "min_wt_kg"        = min_weight,
+            "max_wt_kg"        = max_weight)) %>% 
+          
+          # Replace Inf with NA
+          mutate(across(
+            .cols = numlen_adj_total:max_wt_kg, 
+            .fns = ~ifelse(is.infinite(abs(.x)), NA, .x)))
+        
+      }
+        
+        
+        
+      
+      # return the table
+      return(table_out)
+    }) %>% 
+    # Decompose the group ID back into original columns
+    separate(
+      group_var, 
+      sep = "-", 
+      into = .group_cols, 
+      remove = T)
+  
+  
+  
+  # Return the results
+  return(group_results)
+  
+  
+}
 
 

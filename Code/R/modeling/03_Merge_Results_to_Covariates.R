@@ -2,13 +2,20 @@
 
 
 ####  Packages  ####
+library(gmRi)
 library(tidyverse)
 
 
 
-# Read in the length/biomass spectra
+
+# Larger finfish community
 finfish_length_spectra <- read_csv(here::here("Data/processed/finfish_length_spectra.csv"))
+finfish_sizes <- read_csv(here::here("Data/processed/finfish_species_length_summary.csv"))
+
+# Wigley Species Community
+wigley_sizes <- read_csv(here::here("Data/processed/wigley_species_size_summary.csv"))
 wigley_length_spectra <- read_csv(here::here("Data/processed/wigley_species_length_spectra.csv"))
+wigley_bodymass_spectra <- read_csv(here::here("Data/processed/wigley_species_bodymass_spectra.csv"))
 
 
 
@@ -16,15 +23,54 @@ wigley_length_spectra <- read_csv(here::here("Data/processed/wigley_species_leng
 
 ####  Covariate Data  ####
 
+# vectors for factor levels
+area_levels <- c("GoM", "GB", "SNE", "MAB")
+area_levels_long <- c("Gulf of Maine", "Georges Bank", "Southern New England", "Mid-Atlantic Bight")
+
+# table to join for swapping shorthand for long-hand names
+area_df <- data.frame(
+  area = c("Scotian Shelf", "Gulf of Maine", "Georges Bank", "Southern New England", "Mid-Atlantic Bight", "All"),
+  survey_area = c("SS", "GoM", "GB", "SNE", "MAB", "Northeast Shelf"),
+  area_titles = c("Scotian Shelf", "Gulf of Maine", "Georges Bank", "Southern New England", "Mid-Atlantic Bight", "Northeast Shelf"))
+
 
 # Read in GARFO Landings, averaged over ~survey_areas
-landings_annual <- read_csv(here::here("Data/processed/GARFO_regional_finfish_landings.csv"))
+landings_annual <- read_csv(here::here("Data/processed/GARFO_regional_finfish_landings.csv")) %>% 
+  rename(area = survey_area,
+         est_year = year) %>% 
+  left_join(area_df) %>% 
+  select(survey_area, est_year, total_weight_lb)
 
 
 # Read in du pontavice bottom temperatures, averaged within survey_areas
-bot_temps <- read_csv(here::here("Data", "trawl_region_bottom_temps.csv"))
+bot_temps <- read_csv(here::here("Data", "trawl_region_bottom_temps.csv")) %>% 
+  rename(area = survey_area,
+         est_year = year) %>% 
+  left_join(area_df) %>% 
+ select(survey_area, area_titles, est_year, bot_temp) %>% 
+  mutate(
+    survey_area = factor(
+      survey_area, 
+      levels = area_levels),
+    region = str_replace_all(area_titles, "-| ", "_"),
+    region = factor(
+      region, 
+      levels = area_levels_long))
 
 
+
+
+
+#### Create Modeling Datasets  ####
+
+# 1. Large Community Median Length + length spectra
+ffish_medlen_model_df <- left_join(finfish_sizes, bot_temps) %>% left_join(landings_annual)
+ffish_lenspectra_model_df <- left_join(finfish_length_spectra, bot_temps) %>% left_join(landings_annual)
+
+# 2. Smaller Community Length/Weight/Spectra
+wigley_medlen_model_df <- left_join(wigley_sizes, bot_temps) %>% left_join(landings_annual)
+wigley_lenspectra_model_df <- left_join(wigley_length_spectra, bot_temps) %>% left_join(landings_annual)
+wigley_bmspectra_model_df <- left_join(wigley_bodymass_spectra, bot_temps) %>% left_join(landings_annual)
 
 
 
@@ -34,31 +80,12 @@ bot_temps <- read_csv(here::here("Data", "trawl_region_bottom_temps.csv"))
 
 
 
-# Put it all together and clarify the column names
-finfish_length_spectra <- length_binspectra %>% 
-  left_join(area_df) %>% 
-  select(-survey_area) %>% 
-  rename(year = est_year,
-         survey_area = area)  %>% 
-  mutate(year = as.numeric(as.character(year))) %>% 
-  left_join(landings_raw) %>% 
-  left_join(bot_temps) %>% 
-  mutate(
-    survey_area = factor(
-      survey_area, 
-      levels = area_levels_long),
-    region = str_replace_all(survey_area, "-| ", "_"),
-    region = factor(
-      region, 
-      levels = c("Gulf_of_Maine", "Georges_Bank", 
-                 "Mid_Atlantic_Bight", "Southern_New_England")))
 
 
 
 
 
-
-#### Model Length Spectra
+#### Modeling Length Spectra
 
 library(lme4)
 library(lmerTest)
