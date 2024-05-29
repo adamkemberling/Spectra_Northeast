@@ -49,4 +49,5 @@ po/*~
 rsconnect/
 
 # Raw Data
-Data/*
+Data/raw/*
+

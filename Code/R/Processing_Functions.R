@@ -797,3 +797,17 @@ group_size_metrics <- function(
 }
 
 
+
+
+
+
+
+# rstan compiler options: Only helpful/needed for isdbayes
+# https://github.com/stan-dev/rstan/wiki/Configuring-C---Toolchain-for-Mac
+# dotR <- file.path(Sys.getenv("HOME"), ".R")
+# if (!file.exists(dotR)) dir.create(dotR)
+# M <- file.path(dotR, "Makevars")
+# if (!file.exists(M)) file.create(M)
+# arch <- ifelse(R.version$arch == "aarch64", "arm64", "x86_64")
+# cat(paste("\nCXX17FLAGS += -O3 -mtune=native -arch", arch, "-ftemplate-depth-256"),
+#     file = M, sep = "\n", append = FALSE)

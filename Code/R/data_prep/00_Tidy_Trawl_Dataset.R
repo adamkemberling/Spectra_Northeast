@@ -16,7 +16,7 @@ source(here::here("Code/R/Processing_Functions.R"))
 ####  Load and Prep Data  ####
 
 #Path where "survdat" & spp_keys.csv data exists
-data_path <- here::here("Data/")
+data_path <- here::here("Data/raw")
 
 
 # Just read it in, no* species filtering yet

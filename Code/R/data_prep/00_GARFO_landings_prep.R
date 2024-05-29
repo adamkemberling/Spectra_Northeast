@@ -55,7 +55,7 @@
 ####  Assign Regions to Follow Strata-Aggregates  ####
 
 landings <- read_xlsx(
-  path = here("Data/KMills_landings by area 1964-2021_JUN 2022.xlsx"), sheet = 5) %>% 
+  path = here("Data/raw/KMills_landings by area 1964-2021_JUN 2022.xlsx"), sheet = 5) %>% 
   rename_all(tolower)
 
 
@@ -75,8 +75,6 @@ fish_zones <- list(
 #   `stat area` %in% fish_zones$"Georges Bank", year == 2011)
 
 
-
-
 # Add the labels into the landings data and remove what we don't need there:
 landings <- landings %>% 
   mutate(
@@ -89,6 +87,27 @@ landings <- landings %>%
 
 
 
+####  Remove Freshwater Species  ####
+landings <- landings %>% mutate(sppname = tolower(sppname)) 
+landings %>% distinct(sppname) %>% pull() %>% sort()
+
+# Filter the freshwater species out
+landings <- landings %>% 
+  filter(
+    !str_detect(sppname, "catfish"),
+    !str_detect(sppname, "carp"),
+    !str_detect(sppname, "crappie"),
+    !str_detect(sppname, "snakehead"),
+    sppname != "perch, white",
+    sppname != "perch, yellow",
+    sppname != "starfish",
+    sppname != "sunfish"
+  )
+
+
+
+
+#### Create Annual Summaries  ####
 
 # Get Summaries
 landings_summ <- landings %>% 

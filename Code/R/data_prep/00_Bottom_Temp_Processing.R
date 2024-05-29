@@ -14,10 +14,10 @@ library(gmRi)
 
 
 # Load polygons for aggregate regions based on trawl survey strata
-regions <- read_sf(here::here("Data", "nmfs_trawl_regions_collection.geojson"))
+regions <- read_sf(here::here("Data/raw", "nmfs_trawl_regions_collection.geojson"))
 
 # load BT Netcdf - Obtained directly from Hubert du Pontavice via email
-ponta <- raster::stack(here::here("Data","bottom_temp_combined_product_1959_2020.nc"))
+ponta <- raster::stack(here::here("Data/raw","bottom_temp_combined_product_1959_2020.nc"))
 
 
 
@@ -68,5 +68,5 @@ ggplot(all_bt, aes(year, bot_temp)) +
   geom_line(aes(color = survey_area))
 
 
-write_csv(all_bt, str_c(cs_path("res", "Du_Pontavice_Combined_BT/RegionalTimeseries"), "trawl_region_bottom_temps.csv"))
+write_csv(all_bt, here::here("Data/processed", "trawl_region_bottom_temps.csv"))
 
