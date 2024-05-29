@@ -9,8 +9,8 @@ library(merTools)
 
 
 #### Load Data  ####
-ffish_medlen_df <- read_csv(here::here("Data/processed/model_ready/large_community_medlength_mod.csv"))
-ffish_lenspectra_df <- read_csv(here::here("Data/processed/model_ready/large_community_lenspectra_mod.csv"))
+ffish_medlen_df <- read_csv(here::here("Data/model_ready/large_community_medlength_mod.csv"))
+ffish_lenspectra_df <- read_csv(here::here("Data/model_ready/large_community_lenspectra_mod.csv"))
 
 #lm first
 

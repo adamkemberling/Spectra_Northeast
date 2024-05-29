@@ -9,9 +9,9 @@ library(merTools)
 
 
 #### Load Data  ####
-wigley_medlen_model_df <- read_csv(here::here("Data/processed/model_ready/wigley_community_medsize_mod.csv"))
-wigley_lenspectra_model_df <- read_csv(here::here("Data/processed/model_ready/wigley_community_lenspectra_mod.csv"))
-wigley_bmspectra_model_df <- read_csv(here::here("Data/processed/model_ready/wigley_community_bmspectra_mod.csv"))
+wigley_medlen_model_df <- read_csv(here::here("Data/model_ready/wigley_community_medsize_mod.csv"))
+wigley_lenspectra_model_df <- read_csv(here::here("Data/model_ready/wigley_community_lenspectra_mod.csv"))
+wigley_bmspectra_model_df <- read_csv(here::here("Data/model_ready/wigley_community_bmspectra_mod.csv"))
 
 
 

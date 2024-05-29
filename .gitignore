@@ -50,4 +50,5 @@ rsconnect/
 
 # Raw Data
 Data/raw/*
+Data/processed/*
 
