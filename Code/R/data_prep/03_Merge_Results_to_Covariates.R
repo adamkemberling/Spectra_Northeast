@@ -77,9 +77,12 @@ wigley_bmspectra_model_df <- left_join(wigley_bodymass_spectra, bot_temps) %>% l
 
 
 #### Save Modeling Data  ####
+
+# data limited community
 write_csv(ffish_medlen_model_df, here::here("Data/model_ready/large_community_medlength_mod.csv"))
 write_csv(ffish_lenspectra_model_df, here::here("Data/model_ready/large_community_lenspectra_mod.csv"))
 
+# well studied community
 write_csv(wigley_medlen_model_df, here::here("Data/model_ready/wigley_community_medsize_mod.csv"))
 write_csv(wigley_lenspectra_model_df, here::here("Data/model_ready/wigley_community_lenspectra_mod.csv"))
 write_csv(wigley_bmspectra_model_df, here::here("Data/model_ready/wigley_community_bmspectra_mod.csv"))

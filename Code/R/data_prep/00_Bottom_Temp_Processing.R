@@ -16,8 +16,13 @@ library(gmRi)
 # Load polygons for aggregate regions based on trawl survey strata
 regions <- read_sf(here::here("Data/raw", "nmfs_trawl_regions_collection.geojson"))
 
+
+
 # load BT Netcdf - Obtained directly from Hubert du Pontavice via email
-ponta <- raster::stack(here::here("Data/raw","bottom_temp_combined_product_1959_2020.nc"))
+# This is Jan 1 Temperatures only...
+ponta <- raster::stack(here::here("Data/raw","annual_bottom_temp_combined_product_1959_2020.nc"))
+
+
 
 
 
@@ -40,19 +45,23 @@ mask_nc <- function(ras_obj, mask_shape, rotate = TRUE){
 
 
 # Run it for each of them
+
+
+# Prepare the regions as single polygons:
 gb <- filter(regions, area == "Georges Bank") %>% st_union() %>% st_as_sf()
 gom <- filter(regions, area == "Gulf of Maine") %>% st_union() %>% st_as_sf()
 mab <- filter(regions, area == "Mid-Atlantic Bight") %>% st_union() %>% st_as_sf()
 sne <- filter(regions, area == "Southern New England") %>% st_union() %>% st_as_sf()
 
 
-
+# Use those polygons to mask
 gb_bt <- raster::mask(ponta, gb) %>% crop(., gb) %>% cellStats(mean) %>% as.data.frame() %>% rownames_to_column("year")
 gom_bt <- raster::mask(ponta, gom) %>% crop(., gom) %>% cellStats(mean) %>% as.data.frame() %>% rownames_to_column("year")
 mab_bt <- raster::mask(ponta, mab) %>% crop(., mab) %>% cellStats(mean) %>% as.data.frame() %>% rownames_to_column("year")
 sne_bt <- raster::mask(ponta, sne) %>% crop(., sne) %>% cellStats(mean) %>% as.data.frame() %>% rownames_to_column("year")
 
 
+# Put them in a list for using purrr::map etc. or bind_rows
 all_bt <- list(
   "Georges Bank" = gb_bt,
   "Gulf of Maine" = gom_bt,
@@ -64,9 +73,16 @@ all_bt <- list(
          year = as.numeric(as.character(year)))
 
 
+# Plot the annual trends
 ggplot(all_bt, aes(year, bot_temp)) +
   geom_line(aes(color = survey_area))
 
 
+# Save them out
 write_csv(all_bt, here::here("Data/processed", "trawl_region_bottom_temps.csv"))
 
+
+
+# Bonus: save them back to box:
+bpath <- cs_path("res", "Du_Pontavice_Combined_BT/RegionalTimeseries")
+write_csv(all_bt, str_c(bpath, "trawl_region_bottom_temps.csv"))

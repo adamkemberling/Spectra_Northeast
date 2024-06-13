@@ -51,4 +51,5 @@ rsconnect/
 # Raw Data
 Data/raw/*
 Data/processed/*
+Data/models_and_results/*
 
