@@ -13,7 +13,8 @@ library(ggeffects)
 library(scales)
 library(performance)
 
-theme_set(theme_gmri())
+
+theme_set(theme_gmri(rect = element_rect(fill = "white", color = NA)))
 
 # Degree symbol
 deg_c <- "\u00b0C"
@@ -256,7 +257,7 @@ wig_lenb_mod_preds %>%
 # Save
 ggsave(
   plot = sc_p1_regseasemmeans, 
-  filename = here::here("Figs/small_community/sc_lenb_regionseason_emmeans.png"))
+  filename = here::here("Figs/small_community/sc_lenb_regseason_emmeans.png"))
 
 
 
@@ -365,8 +366,6 @@ summary(wig_lenb_mod2)
 # season
 # season:area
 
-
-
 check_model(wig_lenb_mod2)
 check_outliers(wig_lenb_mod2)
 
@@ -390,7 +389,7 @@ bt_preds <- as.data.frame(
   ggpredict(wig_lenb_mod2, ~ bot_temp + survey_area + season) )
 
 
-# Plotting over bottom temp differences
+# Plotting over bottom temp differences - Not significant
 (sc_p2_btemp_region_margeffect <- bt_preds %>%
     mutate(
       season = factor(facet, levels = c("Spring", "Fall")),
@@ -419,7 +418,7 @@ bt_preds <- as.data.frame(
 # # Save
 # ggsave(
 #   plot = sc_p2_btemp_region_margeffect, 
-#   filename = here::here("Figs/small_community/sc_lenb_btemp_region_margeffects.png"))
+#   filename = here::here("Figs/small_community/sc_lenb_btemp_regseas_margeffects.png"))
 
 
 
@@ -466,7 +465,7 @@ land_preds <- as.data.frame(
 # # Save
 # ggsave(
 #   plot = sc_p2_btemp_region_margeffect,
-#   filename = here::here("Figs/small_community/sc_lenb_l10landings_region_margeffects.png"))
+#   filename = here::here("Figs/small_community/sc_lenb_l10landings_regseas_margeffects.png"))
 
 
 
@@ -484,12 +483,10 @@ summary(wig_lenb_mod2)
 # Region and Season Interaction - Significant
 
 # emmean coefs
-regseas_phoc_lenb2 <- emmeans(
+(regseas_phoc_lenb2 <- emmeans(
   object = wig_lenb_mod2,
   specs = list(pairwise ~ survey_area * season),
-  adjust = "tukey")
-
-regseas_phoc_lenb2
+  adjust = "tukey"))
 
 
 # Response scale
@@ -517,7 +514,7 @@ regseas_phoc_lenb2 <- emmeans(
 # Save
 ggsave(
   plot = sc_p2_regionseason_emmeans, 
-  filename = here::here("Figs/small_community/sc_lenb_regionseason_emmeans.png"))
+  filename = here::here("Figs/small_community/sc_lenb_regseason_emmeans.png"))
 
 
 
@@ -548,10 +545,10 @@ emtrends(
     ))
 
 
-# Save
-ggsave(
-  plot = sc_p2_btemp_margeffect,
-  filename = here::here("Figs/small_community/sc_lenb_btemp_margeffects.png"))
+# # Save
+# ggsave(
+#   plot = sc_p2_btemp_margeffect,
+#   filename = here::here("Figs/small_community/sc_lenb_btemp_margeffects.png"))
 
 
 
@@ -587,4 +584,17 @@ emtrends(
 ggsave(
   plot = sc_p2_land_margeffect, 
   filename = here::here("Figs/small_community/sc_lenb_landings_margeffects.png"))
+
+
+
+
+####  Export Results  ####
+model_pack <- list(
+  "pass_1" = wig_lenb_mod,
+  "pass_2" = wig_lenb_mod2,
+  "model_data" = lenb_model_df)
+
+# Save them
+saveRDS(object = model_pack, file = here::here("Data/models_and_results/sc_lenspectra.RDS"))
+
 

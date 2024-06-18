@@ -12,7 +12,7 @@ library(ggeffects)
 library(scales)
 library(performance)
 
-theme_set(theme_gmri())
+theme_set(theme_gmri(rect = element_rect(fill = "white", color = NA)))
 
 #### Load Data  ####
 ffish_medlen_df <- read_csv(here::here("Data/model_ready/large_community_medlength_mod.csv"))
@@ -378,7 +378,7 @@ ggsave(
 
 
 
-
+####____________________####
 ####  Evaluating Pass2 Options  ####
 
 # # # Original version - was using landings residuals
@@ -463,7 +463,7 @@ ggsave(
 
 
 
-
+####____________________####
 ####  2. Median Length Model  ####
 
 
@@ -472,6 +472,9 @@ ggsave(
 # No Interactions version - scaled btemp, log10 landings
 # Singular fits for year intercepts b/c temp and landings are annual
 ffish_len_mod2 <- lmerTest::lmer(
+  # With yr_num
+  #formula = med_len_cm ~ yr_num * survey_area * season + log10(landings) + scale(bot_temp) + (1 | yr_fac),
+  # Without yr_num
   formula = med_len_cm ~ survey_area * season + log10(landings) + scale(bot_temp) + (1 | yr_fac),
   data = len_model_df)
 
@@ -497,7 +500,7 @@ summary(ffish_len_mod2)
 RandomEffects <- as.data.frame(VarCorr(ffish_len_mod2))
 ICC_between <- RandomEffects[1,4]/(RandomEffects[1,4]+RandomEffects[2,4]) 
 ICC_between
-# 5.5% very low
+# 5.9% very low
 
 
 
@@ -537,10 +540,10 @@ bt_preds <- as.data.frame(
     ))
 
 
-# # Save
-# ggsave(
-#   plot = lc_p2_btemp_region_margeffect, 
-#   filename = here::here("Figs/large_community/lc_medlen_btemp_region_margeffects.png"))
+# Save
+ggsave(
+  plot = lc_p2_btemp_region_margeffect,
+  filename = here::here("Figs/large_community/lc_medlen_btemp_regseason_margeffects.png"))
 
 
 
@@ -584,10 +587,10 @@ land_preds <- as.data.frame(
     ))
 
 
-# # Save
-# ggsave(
-#   plot = lc_p2_btemp_region_margeffect,
-#   filename = here::here("Figs/large_community/lc_medlen_l10landings_region_margeffects.png"))
+# Save
+ggsave(
+  plot = lc_p2_btemp_region_margeffect,
+  filename = here::here("Figs/large_community/lc_medlen_l10landings_regseason_margeffects.png"))
 
 
 
@@ -627,7 +630,7 @@ regseas_phoc_len2
 # Save
 ggsave(
   plot = lc_p2_regionseason_emmeans, 
-  filename = here::here("Figs/large_community/lc_medlen_regionseason_emmeans.png"))
+  filename = here::here("Figs/large_community/lc_medlen_regseason_emmeans.png"))
 
 
 
@@ -640,6 +643,7 @@ emtrends(
   specs =  ~ survey_area,
   var = "bot_temp",
   adjust = "sidak")
+
 
 
 # Just temp
@@ -699,6 +703,16 @@ ggsave(
   filename = here::here("Figs/large_community/lc_medlen_landings_margeffects.png"))
 
 
+
+
+####  Export Results  ####
+model_pack <- list(
+  "pass_1" = ffish_len_mod,
+  "pass_2" = ffish_len_mod2,
+  "model_data" = lenb_model_df)
+
+# Save them
+saveRDS(object = model_pack, file = here::here("Data/models_and_results/lc_medlen.RDS"))
 
 
 

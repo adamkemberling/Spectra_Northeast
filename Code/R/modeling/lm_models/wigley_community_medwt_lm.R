@@ -14,7 +14,7 @@ library(scales)
 library(performance)
 library(gtsummary)
 
-
+# theme set
 theme_set(theme_gmri(rect = element_rect(fill = "white", color = NA)))
 
 
@@ -122,35 +122,24 @@ wt_model_df %>%
 
 
 # Pass 1 Model
-
-# wig_wt_mod <- lmerTest::lmer(
-#   formula = log(med_wt_kg) ~ survey_area * yr_num * season  + (1 | yr_fac),
+# wig_wt_mod <- glm(
+#   formula = med_wt_kg ~ survey_area * yr_num * season,
+#   family = gaussian(link = "log"),
 #   data = wt_model_df)
-
-wig_wt_mod <- lme4::lmer(
-  formula = log(med_wt_kg) ~ survey_area * yr_num * season  + (1 | yr_fac),
+wig_wt_mod <- lm(
+  formula = log10(med_wt_kg) ~ survey_area * yr_num * season,
   data = wt_model_df)
 
 
 # Check overall predictor significance
 
 # This is how gtsummary is doing effect testing:
-# car::Anova(wig_wt_mod, type = 2)
+# car::Anova(wig_wt_mod)
 tbl_regression(wig_wt_mod)  %>% 
-  add_global_p() %>% 
-  bold_p(t = 0.10)  %>%
+  add_global_p(keep = T) %>% 
+  bold_p(t = 0.05)  %>%
   bold_labels() %>%
-  italicize_levels() %>% 
-  as_gt() %>%  
-  gt::tab_header(
-    title = map(c(2,1,3), function(x){unlist(wig_wt_mod@call$formula[[x]])}) %>%
-      paste(collapse = "")
-    )
-
-
-
-# Check the lmertest outputs for fixed effect level significance
-summary(wig_wt_mod)
+  italicize_levels() 
 
 
 
@@ -159,46 +148,9 @@ check_model(wig_wt_mod)
 check_outliers(wig_wt_mod)
 
 
-# Calculate intra-class correlation
-icc(wig_wt_mod)
-# 3.6% of total variance is attributable to between year variance
 
 
 
-####  Likelihood ratio testing  ####
-
-
-
-# # Define the wrapper function
-# lrt_fixed_effects <- function(full_model) {
-#   # Get the formula of the full model
-#   full_formula <- formula(full_model)
-#   fixed_effects <- all.vars(full_formula)[-1]  # Extract fixed effects, excluding response
-#   response <- all.vars(full_formula)[1]
-#   
-#   # Initialize a list to store results
-#   lrt_results <- list()
-#   
-#   # Loop through each fixed effect to test
-#   for (effect in fixed_effects) {
-#     # Create a reduced formula by removing the current fixed effect
-#     reduced_formula <- update(full_formula, paste(". ~ . -", effect))
-#     
-#     # Fit the reduced model
-#     reduced_model <- update(full_model, reduced_formula)
-#     
-#     # Perform the likelihood ratio test
-#     lrt <- anova(reduced_model, full_model)
-#     
-#     # Store the result
-#     lrt_results[[effect]] <- lrt
-#   }
-#   
-#   return(lrt_results)
-# }
-# 
-# 
-# lrt_fixed_effects(wig_wt_mod)
 
 
 
@@ -206,28 +158,7 @@ icc(wig_wt_mod)
 
 
 # Plot the predictions over data
-# No Seasons
-# wig_wt_mod_preds <- as.data.frame(
-#   ggpredict(wig_wt_mod, ~ yr_num + survey_area) )
-# 
-# # Plot over observed data
-# wig_wt_mod_preds %>% 
-#   mutate(survey_area = factor(group, levels = area_levels)) %>% 
-#   ggplot() +
-#   geom_ribbon(aes(x, ymin = conf.low, ymax = conf.high, group = survey_area), alpha = 0.1) +
-#   geom_line(
-#     aes(x, predicted, color = survey_area), 
-#     linewidth = 1) +
-#   geom_point(
-#     data = wt_model_df,
-#     aes(yr_num, med_wt_kg, color = survey_area),
-#     alpha = 0.4,
-#     size = 1) +
-#   facet_wrap(~survey_area, scales = "free") +
-#   scale_color_gmri() +
-#   labs(y = "Median Weight (kg)",
-#        title = "Small community, median weight",
-#        x = "Year")
+
 
 # Full Model
 # Plot the predictions over data
@@ -256,8 +187,6 @@ wig_wt_mod_preds %>%
        x = "Year")
 
 
-
-
 ##### c. Intercept Post-hoc  ####
 # Use emmeans for post-hoc testing for factors
 
@@ -272,8 +201,6 @@ region_phoc_wt <- emmeans(
 # Custom Plot
 (sc_p1_regionemmeans <- region_phoc_wt$`emmeans of survey_area` %>% 
     as_tibble() %>%
-    # ggplot(aes(survey_area, emmean, ymin = lower.CL, ymax = upper.CL)) +
-    # ggplot(aes(survey_area, exp(emmean), ymin = exp(lower.CL), ymax = exp(upper.CL))) +
     ggplot(aes(survey_area, response, ymin = lower.CL, ymax = upper.CL)) +
     geom_pointrange(position = position_dodge(width = 0.25), alpha = 0.8) +
     scale_color_gmri() +
@@ -282,6 +209,7 @@ region_phoc_wt <- emmeans(
       x = "Region",
       title = "Well-Studied Community",
       subtitle = "Median Weight Regional Post-Hoc Comparison"))
+
 
 
 # Save
@@ -301,7 +229,7 @@ ggsave(
   object = wig_wt_mod, 
   specs =  ~ survey_area,
   var = "yr_num",
-  adjust = "sidak"))
+  adjust = "bonf"))
 
 
 # Plotting Slope 
@@ -332,7 +260,7 @@ ggsave(
   object = wig_wt_mod, 
   specs =  pairwise ~ survey_area,
   var = "yr_num",
-  adjust = "sidak"))
+  adjust = "bonf"))
 
 
 
@@ -358,8 +286,8 @@ ggsave(
 
 # No Interactions version - scaled btemp, log10 landings
 # Singular fits for year intercepts b/c temp and landings are annual
-wig_wt_mod2 <- lmerTest::lmer(
-  formula = log(med_wt_kg) ~ survey_area + log10(landings) + scale(bot_temp) + (1 | yr_fac),
+wig_wt_mod2 <- lm(
+  formula = log(med_wt_kg) ~ survey_area + log10(landings) + scale(bot_temp),
   data = wt_model_df)
 
 # vif check - seems tolerable
@@ -369,38 +297,27 @@ plot(performance::check_collinearity(wig_wt_mod2)) +
 
 
 # Summary 
-gtsummary::tbl_regression(wig_wt_mod2)
-# log10(landings), but not scale(landings)
-# survey area
-# season
-# season:area
+gtsummary::tbl_regression(wig_wt_mod2)  %>% 
+  add_global_p(keep = T) %>% 
+  bold_p(t = 0.05)  %>%
+  bold_labels() %>%
+  italicize_levels() 
+
+
 
 # Check performance
 performance::check_model(wig_wt_mod2)
 
 
 
-
-# Calculate intra-class correlation
-# ratio of the random intercept variance (between year variance)
-# to the total variance
-icc(wig_wt_mod2)
-# 3.5%
-
-
-
-# Compare performance of interactions or not:
-wig_wt_mod2_intrx <- lmerTest::lmer(
-  formula = log(med_wt_kg) ~ survey_area * log10(landings) * scale(bot_temp) + (1 | yr_fac),
-  data = wt_model_df)
-
-# No interactions is better, thank god
-compare_performance(wig_wt_mod2, wig_wt_mod2_intrx)
+# Residuals Check
+performance::check_autocorrelation(wig_wt_mod2)
 
 
 
 
-##### b. Model Predictions  ####
+
+##### a. Model Predictions  ####
 
 # Not significant in log(weight) model
 
@@ -435,10 +352,10 @@ bt_preds <- as.data.frame(
     ))
 
 
-# # Save
-# ggsave(
-#   plot = sc_p2_btemp_region_margeffect,
-#   filename = here::here("Figs/small_community/sc_medwt_btemp_regseas_margeffects.png"))
+# Save
+ggsave(
+  plot = sc_p2_btemp_region_margeffect,
+  filename = here::here("Figs/small_community/sc_medwt_btemp_region_margeffects.png"))
 
 
 
@@ -448,7 +365,6 @@ bt_preds <- as.data.frame(
 land_preds <- as.data.frame(
   ggpredict(
     model = wig_wt_mod2,
-    #terms = ~ landings + survey_area + season)
     terms = list("landings" = 10^c(2:10), 
                  "survey_area" = area_levels))
 )
@@ -480,16 +396,16 @@ land_preds <- as.data.frame(
     ))
 
 
-# # Save
-# ggsave(
-#   plot = sc_p2_btemp_region_margeffect,
-#   filename = here::here("Figs/small_community/sc_medwt_l10landings_regseas_margeffects.png"))
+# Save
+ggsave(
+  plot = sc_p2_btemp_region_margeffect,
+  filename = here::here("Figs/small_community/sc_medwt_l10landings_region_margeffects.png"))
 
 
 
 
 
-##### a.  Intercept Post-Hoc  ####
+##### b.  Intercept Post-Hoc  ####
 
 # Summary 
 tbl_regression(wig_wt_mod2, exponentiate = F)
@@ -528,62 +444,42 @@ tbl_regression(wig_wt_mod2, exponentiate = F)
       subtitle = "Median Weight Controlling for Temperature & Landings"))
 
 
-# Save
-ggsave(
-  plot = sc_p2_region_emmeans, 
-  filename = here::here("Figs/small_community/sc_medwt_region_emmeans.png"))
-
-
-
-
 
 
 
 ##### b.  Trend Marginal Effects  ####
-tbl_regression(wig_wt_mod2)
-
-# No Significant Trend in Bot temp
-# Not significant in log(weight)  model
-
-
-# emtrends(
-#   object = wig_wt_mod2, 
-#   specs =  ~ survey_area,
-#   var = "bot_temp",
-#   adjust = "sidak", type = "response")
+tbl_regression(wig_wt_mod2)  %>% 
+  # add_global_p() %>% 
+  bold_p(t = 0.10)  %>%
+  bold_labels() %>%
+  italicize_levels() 
 
 
+# Just temp
+# Plot marginal effects plots over observed data for:
+# Bottom Temperature
+(sc_p2_btemp_margeffect <- as.data.frame(
+  ggpredict(wig_wt_mod2, ~ bot_temp) ) %>%
+    ggplot(aes(x, predicted, ymin = conf.low, ymax = conf.high)) +
+    geom_ribbon(alpha = 0.1) +
+    geom_line() +
+    labs(
+      y = "Median Weight (kg)",
+      x = "Bottom Temperature",
+      title = "Well-Studied Community",
+      subtitle = "Median Weight and Bottom Temperature Marginal Mean Effect"
+    ))
 
-# # Just temp
-# # Plot marginal effects plots over observed data for:
-# # Bottom Temperature
-# (sc_p2_btemp_margeffect <- as.data.frame(
-#   ggpredict(wig_wt_mod2, ~ bot_temp) ) %>% 
-#     ggplot(aes(x, predicted, ymin = conf.low, ymax = conf.high)) +
-#     geom_ribbon(alpha = 0.1) +
-#     geom_line() +
-#     labs(
-#       y = "Median Weight (kg)", 
-#       x = "Bottom Temperature",
-#       title = "Well-Studied Community",
-#       subtitle = "Median Weight and Bottom Temperature Marginal Mean Effect"
-#     ))
-# 
-# 
-# # Save
-# ggsave(
-#   plot = sc_p2_btemp_margeffect, 
-#   filename = here::here("Figs/small_community/sc_medwt_btemp_margeffects.png"))
+
+# Save
+ggsave(
+  plot = sc_p2_btemp_margeffect,
+  filename = here::here("Figs/small_community/sc_medwt_btemp_margeffects.png"))
 
 
 
 
 # Significant Trend in landings
-emtrends(
-  object = wig_wt_mod2, 
-  specs =  ~ survey_area,
-  var = "landings",
-  adjust = "sidak")
 
 
 # Plot marginal effects plots over observed data for:

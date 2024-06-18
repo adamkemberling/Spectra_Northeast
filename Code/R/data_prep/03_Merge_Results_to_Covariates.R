@@ -43,19 +43,20 @@ landings_annual <- read_csv(here::here("Data/processed/GARFO_regional_finfish_la
 
 
 # Read in du pontavice bottom temperatures, averaged within survey_areas
-bot_temps <- read_csv(here::here("Data/processed", "trawl_region_bottom_temps.csv")) %>% 
+
+# ## Annual Bottom temp
+# bot_temps <- read_csv(here::here("Data/processed", "trawl_region_bottom_temps.csv")) %>%
+#   rename(area = survey_area,
+#          est_year = year) %>%
+#   left_join(area_df) %>%
+#  select(survey_area, area_titles, est_year, bot_temp) 
+
+# Seasonal Bottom Temp
+bot_temps <- read_csv(here::here("Data/processed", "trawl_region_seasonal_bottom_temps.csv")) %>% 
   rename(area = survey_area,
          est_year = year) %>% 
   left_join(area_df) %>% 
- select(survey_area, area_titles, est_year, bot_temp) %>% 
-  mutate(
-    survey_area = factor(
-      survey_area, 
-      levels = area_levels),
-    region = str_replace_all(area_titles, "-| ", "_"),
-    region = factor(
-      region, 
-      levels = area_levels_long))
+  select(survey_area, area_titles, est_year, season, bot_temp)
 
 
 
@@ -86,3 +87,4 @@ write_csv(ffish_lenspectra_model_df, here::here("Data/model_ready/large_communit
 write_csv(wigley_medlen_model_df, here::here("Data/model_ready/wigley_community_medsize_mod.csv"))
 write_csv(wigley_lenspectra_model_df, here::here("Data/model_ready/wigley_community_lenspectra_mod.csv"))
 write_csv(wigley_bmspectra_model_df, here::here("Data/model_ready/wigley_community_bmspectra_mod.csv"))
+

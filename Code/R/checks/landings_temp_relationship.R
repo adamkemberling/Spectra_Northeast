@@ -133,3 +133,54 @@ len_model_df %>%
 
 
 # No not really, not needed
+
+
+#####  Log or scale landings  ####
+
+
+
+
+
+####  Log(landings) vs. scale(landings)
+
+# scale
+hist(scale(lenb_model_df$landings)) # Raw -hist
+skewness(scale(lenb_model_df$landings)) # Raw - skew
+range(scale(lenb_model_df$landings)) # Raw - range
+hist(log10(lenb_model_df$landings)) # Log10 - hist
+skewness(log10(lenb_model_df$landings)) # Log10 - skew
+range(log10(lenb_model_df$landings)) # Log10 - range
+
+# Both, loses interpretability, same skew
+skewness(scale(log10(lenb_model_df$landings)))
+hist(scale(log10(lenb_model_df$landings)))
+
+
+
+
+
+
+
+# Check VIF before any dummy-variables are included -- Seem Fine < 1.2
+# https://statisticalhorizons.com/multicollinearity/
+collin_lm <- lm(med_len_cm ~ log10(landings) + scale(bot_temp) + yr_num, data = len_model_df)
+check_collinearity(collin_lm)
+collin_blm <- lm(b ~ log10(landings) + scale(bot_temp) + yr_num, data = lenb_model_df)
+check_collinearity(collin_blm)
+
+# going rogue - probably fine actually
+# simple lm
+rogue_len_mod <- lm(
+  formula = med_len_cm ~ survey_area * yr_num * season + scale(bot_temp) + log10(landings),
+  data = len_model_df)
+check_model(rogue_len_mod)
+summary(rogue_len_mod)
+
+# lmer
+rogue_len_lmer <- lmerTest::lmer(
+  formula = med_len_cm ~ survey_area * yr_num * season + scale(bot_temp) + log10(landings) +
+    (1 | yr_fac),
+  data = len_model_df)
+check_model(rogue_len_lmer)
+icc(rogue_len_lmer)
+summary(rogue_len_lmer)

@@ -1,7 +1,5 @@
 
 #### Modeling Length Spectra  ####
-library(lme4)
-library(lmerTest)
 library(emmeans)
 library(merTools)
 library(tidyquant)
@@ -10,9 +8,10 @@ library(gmRi)
 library(ggeffects)
 library(scales)
 library(performance)
+library(gtsummary)
 
 
-
+# plot theme
 theme_set(theme_gmri(rect = element_rect(fill = "white", color = NA)))
 
 
@@ -43,11 +42,6 @@ len_model_df <- drop_na(wigley_medlen_df, total_weight_lb, bot_temp, med_len_cm)
 
 #### Colinearity Avoidance  ####
 
-# Approach 1:
-# Proportion/residuals of landings not explained by bot temp
-
-# Approach 2:
-# Differencing of tthe two predictors to remove trend
 
 
 # 1. length model df
@@ -83,25 +77,34 @@ ggplot(len_model_df, aes(yr_num, med_len_cm, color = season)) +
 
 # Covariates over time time
 len_model_df %>% 
-  select(est_year, survey_area, landings, bot_temp) %>% 
-  mutate(
-    bot_temp = scale(bot_temp)[,1],
-    landings = scale(log10(landings))[,1]) %>% 
-  pivot_longer(-c(est_year, survey_area), names_to = "Covariate", values_to = "value") %>% 
-  ggplot(aes(est_year, value, color = Covariate)) +
+  ggplot(aes(est_year, bot_temp, color = season)) +
   geom_point(size = 1, alpha = 0.6) +
-  geom_ma(aes(linetype = "5-Year Moving Average"),n = 5, ma_fun = SMA,alpha = 0.6) +
+  geom_ma(aes(linetype = "5-Year Moving Average", group = season),
+          n = 5, ma_fun = SMA,alpha = 0.6) +
   geom_smooth(method = "lm", linewidth = 1, se = F, 
-              aes(linetype = "Regression Fit")) +
+              aes(linetype = "Regression Fit", group = season)) +
   facet_wrap(~survey_area) +
   scale_color_gmri() +
   labs(title = "Predictor Trends",
        subtitle = "Exploring colinearity with time",
        x = "Year",
-       color = "Covariate")
+       color = "Season")
 
 
-
+# Landings
+len_model_df %>% 
+  ggplot(aes(est_year, landings, color = survey_area)) +
+  geom_point(size = 1, alpha = 0.6) +
+  geom_ma(aes(linetype = "5-Year Moving Average"),
+          n = 5, ma_fun = SMA,alpha = 0.6) +
+  geom_smooth(method = "lm", linewidth = 1, se = F, 
+              aes(linetype = "Regression Fit")) +
+  facet_wrap(~survey_area) +
+  scale_color_gmri() +
+  labs(
+    title = "Predictor Trends",
+    subtitle = "Exploring colinearity with time",
+    x = "Year")
 
 
 
@@ -111,44 +114,30 @@ len_model_df %>%
 ####__  Pass 1: Change/Time  __####
 
 ####  1. Median Length Model  ####
-wig_len_mod <- lmerTest::lmer(
-  formula = med_len_cm ~ survey_area * yr_num * season + (1 | yr_fac),
+wig_len_mod <- lm(
+  formula = med_len_cm ~ survey_area * yr_num * season,
   data = len_model_df)
 
-
-
-# # Remove random effect?
-# wig_len_mod <- lm(
-#   formula = med_len_cm ~ survey_area * yr_num * season, #+ (1 | yr_fac),
-#   data = len_model_df)
+# Summary
+summary(wig_len_mod)
 
 
 # Check important predictors
-summary(wig_len_mod)
-# survey area and year, 
-
+# This is how gtsummary is doing effect testing:
+# car::Anova(wig_wt_mod)
+tbl_regression(wig_len_mod)  %>% 
+  add_global_p(keep = T) %>% 
+  bold_p(t = 0.05)  %>%
+  bold_labels() %>%
+  italicize_levels() 
 
 
 # Diagnostics
 # check_model(wig_len_mod)
 check_outliers(wig_len_mod)
 check_collinearity(wig_len_mod)
+check_autocorrelation(wig_len_mod)
 
-
-
-
-
-
-# Calculate intra-class correlation
-# https://quantdev.ssri.psu.edu/tutorials/r-bootcamp-introduction-multilevel-model-and-interactions
-# Store the random effect variances, which will be the first column of the VarCorr object
-RandomEffects <- as.data.frame(VarCorr(wig_len_mod))
-
-# Next, compute the ICC. It is the ratio of the random intercept variance (between-year var) over the total variance (between + within var):
-ICC_between <- RandomEffects[1,4] / (RandomEffects[1,4] + RandomEffects[2,4]) 
-ICC_between
-icc(wig_len_mod) # with performance
-# .8-.9% of total variance is attributable to between year variance
 
 
 
@@ -194,12 +183,12 @@ wig_len_mod_preds %>%
 # Use emmeans for post-hoc testing for factors
 
 # Regions - significant
-region_phoc_len <- emmeans(
+(region_phoc_len <- emmeans(
   wig_len_mod, 
   list(pairwise ~ survey_area), 
   adjust = "tukey",
-  type = "response")
-region_phoc_len
+  type = "response"))
+
 
 
 # Custom Plot
@@ -232,7 +221,7 @@ ggsave(
   object = wig_len_mod, 
   specs =  ~ survey_area,
   var = "yr_num",
-  adjust = "sidak"))
+  adjust = "bonf"))
 
 
 # Plotting Slope 
@@ -277,8 +266,8 @@ ggsave(
 
 # No Interactions version - scaled btemp, log10 landings
 # Singular fits for year intercepts b/c temp and landings are annual
-wig_len_mod2 <- lmerTest::lmer(
-  formula = med_len_cm ~ survey_area * season + log10(landings) + scale(bot_temp) + (1 | yr_fac),
+wig_len_mod2 <- lm(
+  formula = med_len_cm ~ survey_area + log10(landings) + scale(bot_temp),
   data = len_model_df)
 
 # vif check - seems tolerable
@@ -287,27 +276,17 @@ plot(performance::check_collinearity(wig_len_mod2)) +
   geom_hline(yintercept = 3, linetype = 3, aes(color = "Zuur Threshold"), linewidth = 1)
 
 
-# Summary 
-summary(wig_len_mod2)
-# survey area
-# season
-# season:area
-# Landings
-
-
 # Diagnostics
 performance::check_model(wig_len_mod2)
 
 
 
-
-# Calculate intra-class correlation
-# ratio of the random intercept variance (between year variance)
-# to the total variance
-RandomEffects <- as.data.frame(VarCorr(wig_len_mod2))
-ICC_between <- RandomEffects[1,4]/(RandomEffects[1,4]+RandomEffects[2,4]) 
-ICC_between
-# 1.4%
+# Summary 
+tbl_regression(wig_len_mod2)  %>% 
+  add_global_p(keep = T) %>% 
+  bold_p(t = 0.05)  %>%
+  bold_labels() %>%
+  italicize_levels() 
 
 
 
@@ -318,18 +297,16 @@ ICC_between
 # Plot marginal effects plots over observed data for:
 # Bottom Temperature
 bt_preds <- as.data.frame(
-  ggpredict(wig_len_mod2, ~ bot_temp + survey_area + season) )
+  ggpredict(wig_len_mod2, ~ bot_temp + survey_area) )
 
 
 # Plotting over bottom temp differences
 (sc_p2_btemp_region_margeffect <- bt_preds %>%
-    mutate(
-      season = factor(facet, levels = c("Spring", "Fall")),
-      survey_area = factor(group, levels = area_levels)) %>%
+    mutate(survey_area = factor(group, levels = area_levels)) %>%
     ggplot() +
-    geom_ribbon(aes(x, ymin = conf.low, ymax = conf.high, group = season), alpha = 0.1) +
+    geom_ribbon(aes(x, ymin = conf.low, ymax = conf.high, group = survey_area), alpha = 0.1) +
     geom_line(
-      aes(x, predicted, color = season),
+      aes(x, predicted, group = survey_area),
       linewidth = 1) +
     geom_point(
       data = len_model_df,
@@ -360,10 +337,8 @@ bt_preds <- as.data.frame(
 land_preds <- as.data.frame(
   ggpredict(
     model = wig_len_mod2,
-    #terms = ~ landings + survey_area + season)
     terms = list("landings" = 10^c(2:10), 
-                 "survey_area" = area_levels,
-                 season = c("Spring", "Fall")))
+                 "survey_area" = area_levels))
 )
 
 
@@ -371,12 +346,11 @@ land_preds <- as.data.frame(
 # Plotting over landings differences
 (sc_p2_land_region_margeffect <- land_preds %>%
     mutate(
-      season = factor(facet, levels = c("Spring", "Fall")),
       survey_area = factor(group, levels = area_levels)) %>%
     ggplot() +
-    geom_ribbon(aes(x, ymin = conf.low, ymax = conf.high, group = season), alpha = 0.1) +
+    geom_ribbon(aes(x, ymin = conf.low, ymax = conf.high, group = survey_area), alpha = 0.1) +
     geom_line(
-      aes(x, predicted, color = season),
+      aes(x, predicted, group = survey_area),
       linewidth = 1) +
     geom_point(
       data = len_model_df,
@@ -412,30 +386,20 @@ summary(wig_len_mod2)
 # area:season
 
 
-# Region and Season Interaction - Significant
-
-# emmean coefs
-regseas_phoc_len2 <- emmeans(
-  object = wig_len_mod2,
-  specs = list(pairwise ~ survey_area * season),
-  adjust = "tukey")
-
-regseas_phoc_len2
-
 
 # Response scale
 regseas_phoc_len2 <- emmeans(
   object = wig_len_mod2,
-  specs = list(pairwise ~ survey_area * season),
+  specs = list(pairwise ~ survey_area),
   adjust = "tukey", 
   type = "response")
 
 
 # Plot of the region & seasonal differences
-(sc_p2_regionseason_emmeans <- regseas_phoc_len2$`emmeans of survey_area, season` %>%
+(sc_p2_regionseason_emmeans <- regseas_phoc_len2$`emmeans of survey_area` %>%
     as_tibble() %>%
     ggplot(aes(survey_area, emmean, ymin = lower.CL, ymax = upper.CL)) +
-    geom_pointrange(aes(color = season), position = position_dodge(width = 0.25), alpha = 0.8) +
+    geom_pointrange(position = position_dodge(width = 0.25), alpha = 0.8) +
     scale_color_gmri() +
     labs(
       y = "Median Length (cm)",
@@ -445,10 +409,7 @@ regseas_phoc_len2 <- emmeans(
       subtitle = "Median Length Region x Season Fixed Effects - Post-Hoc"))
 
 
-# Save
-ggsave(
-  plot = sc_p2_regionseason_emmeans, 
-  filename = here::here("Figs/small_community/sc_medlen_regseason_emmeans.png"))
+
 
 
 
@@ -460,29 +421,29 @@ emtrends(
   object = wig_len_mod2, 
   specs =  ~ survey_area,
   var = "bot_temp",
-  adjust = "sidak")
+  adjust = "bonf")
 
 
-# # Just temp
-# # Plot marginal effects plots over observed data for:
-# # Bottom Temperature
-# (sc_p2_btemp_margeffect <- as.data.frame(
-#   ggpredict(wig_len_mod2, ~ bot_temp) ) %>% 
-#     ggplot(aes(x, predicted, ymin = conf.low, ymax = conf.high)) +
-#     geom_ribbon(alpha = 0.1) +
-#     geom_line() +
-#     labs(
-#       y = "Median Length (cm)", 
-#       x = "Bottom Temperature",
-#       title = "Small Finfish Community",
-#       subtitle = "Median Length and Bottom Temperature Marginal Mean Effect"
-#     ))
-# 
-# 
-# # Save
-# ggsave(
-#   plot = sc_p2_btemp_margeffect, 
-#   filename = here::here("Figs/small_community/sc_medlen_btemp_margeffects.png"))
+# Just temp
+# Plot marginal effects plots over observed data for:
+# Bottom Temperature
+(sc_p2_btemp_margeffect <- as.data.frame(
+  ggpredict(wig_len_mod2, ~ bot_temp) ) %>%
+    ggplot(aes(x, predicted, ymin = conf.low, ymax = conf.high)) +
+    geom_ribbon(alpha = 0.1) +
+    geom_line() +
+    labs(
+      y = "Median Length (cm)",
+      x = "Bottom Temperature",
+      title = "Small Finfish Community",
+      subtitle = "Median Length and Bottom Temperature Marginal Mean Effect"
+    ))
+
+
+# Save
+ggsave(
+  plot = sc_p2_btemp_margeffect,
+  filename = here::here("Figs/small_community/sc_medlen_btemp_margeffects.png"))
 
 
 
@@ -492,7 +453,7 @@ emtrends(
   object = wig_len_mod2, 
   specs =  ~ survey_area,
   var = "landings",
-  adjust = "sidak")
+  adjust = "bonf")
 
 
 # Plot marginal effects plots over observed data for:

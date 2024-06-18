@@ -10,8 +10,11 @@ library(gmRi)
 library(ggeffects)
 library(scales)
 library(performance)
+library(gtsummary)
 
+# plot theme
 theme_set(theme_gmri(rect = element_rect(fill = "white", color = NA)))
+
 
 # Degree symbol
 deg_c <- "\u00b0C"
@@ -42,10 +45,6 @@ wtb_model_df <- drop_na(wigley_bmspectra_df, total_weight_lb, bot_temp, b) %>%
 
 # Approach 1:
 # Proportion/residuals of landings not explained by bot temp
-
-# Approach 2:
-# Differencing of tthe two predictors to remove trend
-
 
 # 1. bodymass spectra model df
 landings_temp_lm <- lm(total_weight_lb ~ bot_temp, data = wtb_model_df)
@@ -104,25 +103,6 @@ ggplot(wtb_model_df, aes(yr_num, b, color = season)) +
        x = "Year",
        color = "Season")
 
-# Covariateschange over time
-wtb_model_df %>% 
-  select(est_year, survey_area, total_weight_lb, bot_temp) %>% 
-  mutate(bot_temp = scale(bot_temp)[,1],
-         total_weight_lb = scale(total_weight_lb)[,1]) %>% 
-  pivot_longer(-c(est_year, survey_area), names_to = "Covariate", values_to = "value") %>% 
-  ggplot(aes(est_year, value, color = Covariate)) +
-  geom_point(size = 1, alpha = 0.6) +
-  geom_ma(aes(linetype = "5-Year Moving Average"),n = 5, ma_fun = SMA,alpha = 0.6) +
-  geom_smooth(method = "lm", linewidth = 1, se = F, 
-              aes(linetype = "Regression Fit")) +
-  facet_wrap(~survey_area) +
-  scale_color_gmri() +
-  labs(title = "Predictor Trends",
-       subtitle = "Exploring colinearity with time",
-       y = "b",
-       x = "Year",
-       color = "Covariate")
-
 
 
 
@@ -134,27 +114,23 @@ wtb_model_df %>%
 ####__  Pass 1: Change/Time  __####
 
 ####  1. Body Mass Spectra Model  ####
-wig_wtb_mod <- lmerTest::lmer(
-  formula = b ~ survey_area * yr_num * season + (1 | yr_fac),
+wig_wtb_mod <- lm(
+  formula = b ~ survey_area * yr_num * season,
   data = wtb_model_df)
 
 
 
 # Check important predictors
-summary(wig_wtb_mod)
-# survey area and year, not season
-
+# Check important predictors
+tbl_regression(wig_wtb_mod)  %>% 
+  add_global_p(keep = T) %>% 
+  bold_p(t = 0.05)  %>%
+  bold_labels() %>%
+  italicize_levels() 
 
 # Diagnostics
 check_model(wig_wtb_mod)
 check_outliers(wig_wtb_mod)
-
-# Calculate intra-class correlation
-icc(wig_wtb_mod)
-# 4.1% of total variance is attributable to between year variance
-
-
-
 
 
 
@@ -195,31 +171,7 @@ wig_wtb_mod_preds %>%
 ##### c. Intercept Post-hoc  ####
 # Use emmeans for post-hoc testing for factors
 
-# # Regions - significant
-# region_phoc_wtb <- emmeans(
-#   wig_wtb_mod, 
-#   list(pairwise ~ survey_area), 
-#   adjust = "tukey",
-#   type = "response")
-# 
-# 
-# # Custom Plot
-# (sc_p1_regionemmeans <- region_phoc_wtb$`emmeans of survey_area` %>% 
-#     as_tibble() %>%
-#     ggplot(aes(survey_area, emmean, ymin = lower.CL, ymax = upper.CL)) +
-#     geom_pointrange(position = position_dodge(width = 0.25), alpha = 0.8) +
-#     scale_color_gmri() +
-#     labs(
-#       y = "EMMean - Body Mass Spectra Slope (b)",
-#       x = "Region",
-#       title = "Small Finfish Community",
-#       subtitle = "Body Mass Spectra Regional Post-Hoc Comparison"))
-# 
-# 
-# # Save
-# ggsave(
-#   plot = sc_p1_regionemmeans, 
-#   filename = here::here("Figs/small_community/sc_wtb_region_emmeans.png"))
+
 
 # Regions - significant
 (regseas_phoc_lenb <- emmeans(
@@ -258,7 +210,7 @@ ggsave(
 #   object = wig_wtb_mod, 
 #   specs =  ~ survey_area,
 #   var = "yr_num",
-#   adjust = "sidak"))
+#   adjust = "bonf"))
 # 
 # 
 # # Plotting Slope 
@@ -288,7 +240,7 @@ ggsave(
   object = wig_wtb_mod, 
   specs =  ~ survey_area + season,
   var = "yr_num",
-  adjust = "sidak"))
+  adjust = "bonf"))
 
 
 # Plotting Slope 
@@ -335,8 +287,8 @@ ggsave(
 
 # No Interactions version - scaled btemp, log10 landings
 # Singular fits for year intercepts b/c temp and landings are annual
-wig_wtb_mod2 <- lmerTest::lmer(
-  formula = b ~ survey_area * season + log10(landings) + scale(bot_temp) + (1 | yr_fac),
+wig_wtb_mod2 <- lm(
+  formula = b ~ survey_area + log10(landings) + scale(bot_temp) ,
   data = wtb_model_df)
 
 # vif check - seems tolerable
@@ -345,13 +297,12 @@ plot(performance::check_collinearity(wig_wtb_mod2)) +
   geom_hline(yintercept = 3, linetype = 3, aes(color = "Zuur Threshold"), linewidth = 1)
 
 
-# Summary 
-summary(wig_wtb_mod2)
-# log10(landings)
-# survey area
-# season
-# season:area
-
+# Check important predictors
+tbl_regression(wig_wtb_mod2)  %>% 
+  add_global_p(keep = T) %>% 
+  bold_p(t = 0.05)  %>%
+  bold_labels() %>%
+  italicize_levels() 
 
 
 performance::check_model(wig_wtb_mod2)
@@ -359,59 +310,47 @@ performance::check_model(wig_wtb_mod2)
 
 
 
-# Calculate intra-class correlation
-# ratio of the random intercept variance (between year variance)
-# to the total variance
-RandomEffects <- as.data.frame(VarCorr(wig_wtb_mod2))
-ICC_between <- RandomEffects[1,4]/(RandomEffects[1,4]+RandomEffects[2,4]) 
-ICC_between
-# 1.2%
-
-
-
-
-##### b. Model Predictions  ####
+##### a. Model Predictions  ####
 
 # Not significant in log(weight) model
 
 # Plot marginal effects plots over observed data for:
 
-# Not significant
-# # Bottom Temperature
-# bt_preds <- as.data.frame(
-#   ggpredict(wig_wtb_mod2, ~ bot_temp + survey_area + season) )
-# 
-# 
-# # Plotting over bottom temp differences
-# (sc_p2_btemp_region_margeffect <- bt_preds %>%
-#     mutate(
-#       season = factor(facet, levels = c("Spring", "Fall")),
-#       survey_area = factor(group, levels = area_levels)) %>%
-#     ggplot() +
-#     geom_ribbon(aes(x, ymin = conf.low, ymax = conf.high, group = season), alpha = 0.1) +
-#     geom_line(
-#       aes(x, predicted, color = season),
-#       linewidth = 1) +
-#     geom_point(
-#       data = wtb_model_df,
-#       aes(bot_temp, b, color = season),
-#       alpha = 0.6,
-#       size = 1) +
-#     scale_color_gmri() +
-#     facet_wrap(~survey_area) +
-#     scale_x_continuous(labels = scales::number_format(suffix = deg_c))+
-#     labs(
-#       y = "Body Mass Spectra Slope (b)",
-#       x = "Bottom Temperature",
-#       title = "Small Finfish Community",
-#       subtitle = "Body Mass Spectra and Bottom Temperature Marginal Mean Predictions"
-#     ))
+
+# Bottom Temperature
+bt_preds <- as.data.frame(
+  ggpredict(wig_wtb_mod2, ~ bot_temp + survey_area) )
 
 
-# # Save
-# ggsave(
-#   plot = sc_p2_btemp_region_margeffect, 
-#   filename = here::here("Figs/small_community/sc_wtb_btemp_regseas_margeffects.png"))
+# Plotting over bottom temp differences
+(sc_p2_btemp_region_margeffect <- bt_preds %>%
+    mutate(
+      survey_area = factor(group, levels = area_levels)) %>%
+    ggplot() +
+    geom_ribbon(aes(x, ymin = conf.low, ymax = conf.high, group = survey_area), alpha = 0.1) +
+    geom_line(
+      aes(x, predicted, group = survey_area),
+      linewidth = 1) +
+    geom_point(
+      data = wtb_model_df,
+      aes(bot_temp, b, color = season),
+      alpha = 0.6,
+      size = 1) +
+    scale_color_gmri() +
+    facet_wrap(~survey_area) +
+    scale_x_continuous(labels = scales::number_format(suffix = deg_c))+
+    labs(
+      y = "Body Mass Spectra Slope (b)",
+      x = "Bottom Temperature",
+      title = "Small Finfish Community",
+      subtitle = "Body Mass Spectra and Bottom Temperature Marginal Mean Predictions"
+    ))
+
+
+# Save
+ggsave(
+  plot = sc_p2_btemp_region_margeffect,
+  filename = here::here("Figs/small_community/sc_wtb_btemp_region_margeffects.png"))
 
 
 
@@ -421,10 +360,8 @@ ICC_between
 land_preds <- as.data.frame(
   ggpredict(
     model = wig_wtb_mod2,
-    #terms = ~ landings + survey_area + season)
-    terms = list("landings" = 10^c(3:10), 
-                 "survey_area" = area_levels,
-                 season = c("Spring", "Fall")))
+   terms = list("landings" = 10^c(3:10), 
+                 "survey_area" = area_levels))
 )
 
 
@@ -432,12 +369,11 @@ land_preds <- as.data.frame(
 # Plotting over landings differences
 (sc_p2_land_region_margeffect <- land_preds %>%
     mutate(
-      season = factor(facet, levels = c("Spring", "Fall")),
       survey_area = factor(group, levels = area_levels)) %>%
     ggplot() +
-    geom_ribbon(aes(x, ymin = conf.low, ymax = conf.high, group = season), alpha = 0.1) +
+    geom_ribbon(aes(x, ymin = conf.low, ymax = conf.high, group = survey_area), alpha = 0.1) +
     geom_line(
-      aes(x, predicted, color = season),
+      aes(x, predicted, group = survey_area),
       linewidth = 1) +
     geom_point(
       data = wtb_model_df,
@@ -455,10 +391,10 @@ land_preds <- as.data.frame(
     ))
 
 
-# # Save
-# ggsave(
-#   plot = sc_p2_btemp_region_margeffect,
-#   filename = here::here("Figs/small_community/sc_wtb_l10landings_regseas_margeffects.png"))
+# Save
+ggsave(
+  plot = sc_p2_land_region_margeffect,
+  filename = here::here("Figs/small_community/sc_wtb_l10landings_region_margeffects.png"))
 
 
 
@@ -475,28 +411,19 @@ summary(wig_wtb_mod2)
 
 # Region and Season Interaction - Significant
 
-# emmean coefs
-regseas_phoc_wtb2 <- emmeans(
-  object = wig_wtb_mod2,
-  specs = list(pairwise ~ survey_area * season),
-  adjust = "tukey")
-
-regseas_phoc_wtb2
-
-
 # Response scale
-regseas_phoc_wtb2 <- emmeans(
+(regseas_phoc_wtb2 <- emmeans(
   object = wig_wtb_mod2,
-  specs = list(pairwise ~ survey_area * season),
+  specs = list(pairwise ~ survey_area),
   adjust = "tukey", 
-  type = "response")
+  type = "response"))
 
 
 # Plot of the region & seasonal differences
-(sc_p2_regionseason_emmeans <- regseas_phoc_wtb2$`emmeans of survey_area, season` %>%
+(sc_p2_regionseason_emmeans <- regseas_phoc_wtb2$`emmeans of survey_area` %>%
     as_tibble() %>%
     ggplot(aes(survey_area, emmean, ymin = lower.CL, ymax = upper.CL)) +
-    geom_pointrange(aes(color = season), position = position_dodge(width = 0.25), alpha = 0.8) +
+    geom_pointrange(position = position_dodge(width = 0.25), alpha = 0.8) +
     scale_color_gmri() +
     labs(
       y = "Body Mass Spectra Slope (b)",
@@ -506,44 +433,37 @@ regseas_phoc_wtb2 <- emmeans(
       subtitle = "Body Mass Spectra Region x Season Fixed Effects - Post-Hoc"))
 
 
-# Save
-ggsave(
-  plot = sc_p2_regionseason_emmeans, 
-  filename = here::here("Figs/small_community/sc_wtb_regseason_emmeans.png"))
-
-
-
 
 ##### b.  Trend Marginal Effects  ####
 
-# # No Significant Trend in Bot temp
-# emtrends(
-#   object = wig_wtb_mod2, 
-#   specs =  ~ survey_area,
-#   var = "bot_temp",
-#   adjust = "sidak")
-# 
-# 
-# # Just temp
-# # Plot marginal effects plots over observed data for:
-# # Bottom Temperature
-# (sc_p2_btemp_margeffect <- as.data.frame(
-#   ggpredict(wig_wtb_mod2, ~ bot_temp) ) %>%
-#     ggplot(aes(x, predicted, ymin = conf.low, ymax = conf.high)) +
-#     geom_ribbon(alpha = 0.1) +
-#     geom_line() +
-#     labs(
-#       y = "Body Mass Spectra Slope (b)",
-#       x = "Bottom Temperature",
-#       title = "Small Finfish Community",
-#       subtitle = "Body Mass Spectra and Bottom Temperature Marginal Mean Effect"
-#     ))
-# 
-# 
-# # Save
-# ggsave(
-#   plot = sc_p2_btemp_margeffect,
-#   filename = here::here("Figs/small_community/sc_wtb_btemp_margeffects.png"))
+
+emtrends(
+  object = wig_wtb_mod2,
+  specs =  ~ survey_area,
+  var = "bot_temp",
+  adjust = "bonf")
+
+
+# Just temp
+# Plot marginal effects plots over observed data for:
+# Bottom Temperature
+(sc_p2_btemp_margeffect <- as.data.frame(
+  ggpredict(wig_wtb_mod2, ~ bot_temp) ) %>%
+    ggplot(aes(x, predicted, ymin = conf.low, ymax = conf.high)) +
+    geom_ribbon(alpha = 0.1) +
+    geom_line() +
+    labs(
+      y = "Body Mass Spectra Slope (b)",
+      x = "Bottom Temperature",
+      title = "Small Finfish Community",
+      subtitle = "Body Mass Spectra and Bottom Temperature Marginal Mean Effect"
+    ))
+
+
+# Save
+ggsave(
+  plot = sc_p2_btemp_margeffect,
+  filename = here::here("Figs/small_community/sc_wtb_btemp_margeffects.png"))
 
 
 
@@ -553,7 +473,7 @@ emtrends(
   object = wig_wtb_mod2, 
   specs =  ~ survey_area,
   var = "landings",
-  adjust = "sidak")
+  adjust = "bonf")
 
 
 # Plot marginal effects plots over observed data for:

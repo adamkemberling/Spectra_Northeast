@@ -10,8 +10,10 @@ library(gmRi)
 library(ggeffects)
 library(scales)
 library(performance)
+library(gtsummary)
 
-theme_set(theme_gmri())
+# theme set
+theme_set(theme_gmri(rect = element_rect(fill = "white", color = NA)))
 
 #### Load Data  ####
 ffish_lenspectra_df <- read_csv(here::here("Data/model_ready/large_community_lenspectra_mod.csv"))
@@ -55,7 +57,7 @@ ggplot(lenb_model_df, aes(yr_num, b, color = season)) +
 
 # Bottom Temperatures
 # Plot the annual trends
-ggplot(lenb_model_df, aes(yr_num, bot_temp, color = survey_area)) +
+ggplot(lenb_model_df, aes(yr_num, bot_temp, color = season)) +
   geom_point(size = 1, alpha = 0.6) +
   geom_ma(aes(linetype = "5-Year Moving Average"),n = 5, ma_fun = SMA) +
   geom_smooth(method = "lm", linewidth = 1, se = F, 
@@ -77,21 +79,19 @@ ggplot(lenb_model_df, aes(yr_num, bot_temp, color = survey_area)) +
 
 #### 1. Length Spectra Model  ####
 
-ffish_b_mod <- lmerTest::lmer(
-  formula = b ~ survey_area * yr_num * season + ((1 | yr_fac)),
+ffish_b_mod <- lm(
+  formula = b ~ survey_area * yr_num * season,
   data = lenb_model_df)
 
 
-# Summary
-summary(ffish_b_mod)
-# area
-# year
-# area x year
+# Check important predictors
+tbl_regression(ffish_b_mod)  %>% 
+  add_global_p(keep = T) %>% 
+  bold_p(t = 0.05)  %>%
+  bold_labels() %>%
+  italicize_levels() 
 
 
-# Calculate intra-class correlation
-icc(ffish_b_mod)
-# 14.8% of total variance is attributable to between year variance
 
 
 
@@ -102,7 +102,6 @@ icc(ffish_b_mod)
 ffish_b_mod_preds <- as.data.frame(
   ggpredict(ffish_b_mod, ~ yr_num + survey_area) )
 
-#plot(ffish_b_mod)
 
 # Plot over observed data
 ffish_b_mod_preds %>% 
@@ -130,8 +129,7 @@ ffish_b_mod_preds %>%
 # Use emmeans for post-hoc testing for factors
 
 # Regions - significant
-region_phoc_b <- emmeans(ffish_b_mod, list(pairwise ~ survey_area), adjust = "tukey")
-region_phoc_b
+(region_phoc_b <- emmeans(ffish_b_mod, list(pairwise ~ survey_area), adjust = "tukey"))
 
 
 # Custom Plot
@@ -163,7 +161,7 @@ sloperegion_phoc_lenb <- emtrends(
   object = ffish_b_mod, 
   specs =  ~ survey_area,
   var = "yr_num",
-  adjust = "sidak")
+  adjust = "bonf")
 
 # Values
 sloperegion_phoc_lenb
@@ -198,8 +196,8 @@ ggsave(
 
 
 #### 2. Length Spectra Model  ####
-ffish_b_mod2 <- lmerTest::lmer(
-  formula = b ~ survey_area * season + log10(landings) + scale(bot_temp) + (1 | yr_fac),
+ffish_b_mod2 <- lm(
+  formula = b ~ survey_area + log10(landings) + scale(bot_temp),
   data = lenb_model_df)
 
 # vif check - seems still bad
@@ -208,23 +206,14 @@ plot(performance::check_collinearity(ffish_b_mod2)) +
   geom_hline(yintercept = 3, linetype = 3, aes(color = "Zuur Threshold"), linewidth = 1)
 
 
-# Summary 
-summary(ffish_b_mod2)
-# scale(bot_temp)
-# log10(landings)
-# survey area
-# season x area
+# Check important predictors
+tbl_regression(ffish_b_mod2)  %>% 
+  add_global_p(keep = T) %>% 
+  bold_p(t = 0.05)  %>%
+  bold_labels() %>%
+  italicize_levels() 
 
 
-
-# Calculate intra-class correlation
-# ratio of the random intercept variance (between year variance)
-# to the total variance
-RandomEffects <- as.data.frame(VarCorr(ffish_b_mod2))
-RandomEffects
-ICC_between <- RandomEffects[1,4]/(RandomEffects[1,4]+RandomEffects[2,4]) 
-ICC_between
-# 9.9%
 
 
 
@@ -234,18 +223,17 @@ ICC_between
 # Plot marginal effects plots over observed data for:
 # Bottom Temperature
 bt_preds_b <- as.data.frame(
-  ggpredict(ffish_b_mod2, ~ bot_temp + survey_area + season) )
+  ggpredict(ffish_b_mod2, ~ bot_temp + survey_area) )
 
 
 # Plotting over bottom temp differences
 (lc_p2_btemp_region_margeffect_b <- bt_preds_b %>% 
     mutate(
-      season = factor(facet, levels = c("Spring", "Fall")),
       survey_area = factor(group, levels = area_levels)) %>% 
     ggplot() +
-    geom_ribbon(aes(x, ymin = conf.low, ymax = conf.high, group = season), alpha = 0.1) +
+    geom_ribbon(aes(x, ymin = conf.low, ymax = conf.high, group = survey_area), alpha = 0.1) +
     geom_line(
-      aes(x, predicted, color = season), 
+      aes(x, predicted, group = survey_area), 
       linewidth = 1) +
     geom_point(
       data = lenb_model_df, 
@@ -277,10 +265,8 @@ ggsave(
 land_preds_b <- as.data.frame(
   ggpredict(
     model = ffish_b_mod2,
-    #terms = ~ landings + survey_area + season)
     terms = list("landings" = 10^c(1:10), 
-                 "survey_area" = area_levels,
-                 season = c("Spring", "Fall")))
+                 "survey_area" = area_levels))
 )
 
 
@@ -288,12 +274,11 @@ land_preds_b <- as.data.frame(
 # Plotting over landings differences
 (lc_p2_land_region_margeffect_b <- land_preds_b %>%
     mutate(
-      season = factor(facet, levels = c("Spring", "Fall")),
       survey_area = factor(group, levels = area_levels)) %>%
     ggplot() +
-    geom_ribbon(aes(x, ymin = conf.low, ymax = conf.high, group = season), alpha = 0.1) +
+    geom_ribbon(aes(x, ymin = conf.low, ymax = conf.high, group = survey_area), alpha = 0.1) +
     geom_line(
-      aes(x, predicted, color = season),
+      aes(x, predicted, group = survey_area),
       linewidth = 1) +
     geom_point(
       data = lenb_model_df,
@@ -327,17 +312,16 @@ ggsave(
 ##### c.  Intercept Post-Hoc  ####
 
 # Region and Season Interaction - Significant
-regseas_phoc_b2 <- emmeans(
+(regseas_phoc_b2 <- emmeans(
   object = ffish_b_mod2,
-  specs = list(pairwise ~ survey_area * season),
-  adjust = "tukey")
-regseas_phoc_b2
+  specs = list(pairwise ~ survey_area),
+  adjust = "tukey"))
 
 # Plot of the region & seasonal differences
-regseas_phoc_b2$`emmeans of survey_area, season` %>%
+regseas_phoc_b2$`emmeans of survey_area` %>%
   as_tibble() %>%
   ggplot(aes(survey_area, emmean, ymin = lower.CL, ymax = upper.CL)) +
-  geom_pointrange(aes(color = season), position = position_dodge(width = 0.25), alpha = 0.8) +
+  geom_pointrange(position = position_dodge(width = 0.25), alpha = 0.8) +
   scale_color_gmri() +
   labs(
     y = "EMMean - length spectra (b)",
@@ -354,7 +338,7 @@ emtrends(
   object = ffish_b_mod2, 
   specs =  ~ survey_area,
   var = "bot_temp",
-  adjust = "sidak")
+  adjust = "bonf")
 
 
 
@@ -386,7 +370,7 @@ emtrends(
   object = ffish_b_mod2, 
   specs =  ~ survey_area,
   var = "landings",
-  adjust = "sidak")
+  adjust = "bonf")
 
 
 
