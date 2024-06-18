@@ -9,7 +9,8 @@ execute:
   warning: false
   message: false
   comment: ""
-  fig.align: center
+  fig-align: center
+  fig-height: 6
 ---
 
 # About
@@ -17,6 +18,7 @@ execute:
 All linear models are run, tuned, and saved in their own individual scripts. This quarto doc loads the models and the data that was used in them and then generates figures/tables for individual model outputs or cross-group comparisons.
 
 ```{r}
+
 
 ####  Packages  ####
 library(lme4)
@@ -78,379 +80,7 @@ lc_lenb <- read_rds(here::here("Data/models_and_results/lc_lenspectra.RDS"))
 ```
 
 
-
-
-
-
-##  Median Length  
-
-
-
-```{r}
-#| label: median length emmeans
-len_emmeans <- map_dfr(
-  list(
-    "Data-Limited Community" = lc_len$pass_1,
-    "Well-Studied Community" = sc_len$pass_1
-    ),
-  function(x){
-    region_posthoc <- emmeans(
-    x, 
-    list(pairwise ~ survey_area), 
-    adjust = "tukey",
-    type = "response")
-  region_posthoc[[1]] %>% as.data.frame()
-  }, .id = "community"
-)
-
-
-
-## Trends
-
-# Group Means
-len_emtrends <- map_dfr(
-  list(
-    "Data-Limited Community" = lc_len$pass_1,
-    "Well-Studied Community" = sc_len$pass_1
-  ),
-  function(mod_x){
-    region_posthoc <- emtrends(
-      object = mod_x, 
-      specs  =  ~ survey_area,
-      var    = "yr_num",
-      adjust = "bonf")
-    region_posthoc %>% 
-    as_tibble()
-  }, .id = "community"
-)
-```
-
-
-
-
-```{r}
-#| label: median length fig
-
-
-
-# Plotting emmean
-
-# Plot
-len_mean_p <- ggplot(
-  len_emmeans,
-  aes(survey_area, emmean, ymin = lower.CL, ymax = upper.CL,  color = community)) +
-  geom_pointrange(
-    position = position_dodge(width = 0.5), 
-    alpha = 1) +
-  scale_color_gmri() +
-  scale_x_discrete(guide = guide_axis(n.dodge = 2)) +
-  labs(
-    y = "Length Spectra Slope (b)",
-    x = NULL,
-    color = "Finfish Community",
-    title = "Estimated Marginal Means")
-
-
-# Plotting Slope 
-len_trends_p <- len_emtrends  %>% 
-    mutate(flag_alpha = ifelse(lower.CL > 0 | upper.CL <0, 1, 0.4)) %>% 
-    ggplot(aes(color = community, survey_area, yr_num.trend, ymin = lower.CL, ymax = upper.CL)) +
-    geom_hline(yintercept = 0, linetype = 2, color = "black") +
-    geom_pointrange(aes(alpha = I(flag_alpha)),
-                    position = position_dodge(width = 0.5)) +
-    scale_color_gmri() +
-    scale_x_discrete(guide = guide_axis(n.dodge = 2)) +
-    labs(
-      title = "Estimated Marginal Means of Linear Trends",
-      x = "Region",
-      y = "beta",
-      color = "Finfish Community")
-
- 
-
-# Stack them
-(len_mean_p / len_trends_p) + plot_layout(guides = "collect")
-```
-
-
-
-## Length Spectra 
-
-
-
-```{r}
-#| label: length spectra emmeans
-# Group Means
-lenb_emmeans <- map_dfr(
-  list(
-    "Data-Limited Community" = lc_lenb$pass_1,
-    "Well-Studied Community" = sc_lenb$pass_1
-  ),
-  function(x){
-    region_posthoc <- emmeans(
-      x, 
-      list(pairwise ~ survey_area), 
-      adjust = "tukey",
-      type = "response")
-    region_posthoc[[1]] %>% as.data.frame()
-  }, .id = "community"
-)
-
-
-
-## Trends
-
-# Group Means
-lenb_emtrends <- map_dfr(
-  list(
-    "Data-Limited Community" = lc_lenb$pass_1,
-    "Well-Studied Community" = sc_lenb$pass_1
-  ),
-  function(mod_x){
-    region_posthoc <- emtrends(
-      object = mod_x, 
-      specs  =  ~ survey_area,
-      var    = "yr_num",
-      adjust = "bonf")
-    region_posthoc %>% 
-    as_tibble()
-  }, .id = "community"
-)
-```
-
-
-
-```{r}
-#| label: length spectra fig
-
-
-
-# Plotting emmean
-
-# Plot
-lenb_mean_p <- ggplot(
-  lenb_emmeans,
-  aes(survey_area, emmean, ymin = lower.CL, ymax = upper.CL,  color = community)) +
-  geom_pointrange(
-    position = position_dodge(width = 0.5), 
-    alpha = 1) +
-  scale_color_gmri() +
-  scale_x_discrete(guide = guide_axis(n.dodge = 2)) +
-  labs(
-    y = "Length Spectra Slope (b)",
-    x = NULL,
-    color = "Finfish Community",
-    title = "Estimated Marginal Means")
-
-
-# Plotting Slope 
-lenb_trends_p <- lenb_emtrends  %>% 
-    mutate(flag_alpha = ifelse(lower.CL > 0 | upper.CL <0, 1, 0.4)) %>% 
-    ggplot(aes(color = community, survey_area, yr_num.trend, ymin = lower.CL, ymax = upper.CL)) +
-    geom_hline(yintercept = 0, linetype = 2, color = "black") +
-    geom_pointrange(aes(alpha = I(flag_alpha)),
-                    position = position_dodge(width = 0.5)) +
-    scale_color_gmri() +
-    scale_x_discrete(guide = guide_axis(n.dodge = 2)) +
-    labs(
-      title = "Estimated Marginal Means of Linear Trends",
-      x = "Region",
-      y = "beta",
-      color = "Finfish Community")
-
- 
-
-# Stack them
-(lenb_mean_p / lenb_trends_p) + plot_layout(guides = "collect")
-```
-
-
-## Median Weight
-
-
-
-
-```{r}
-#| label: median weight emmeans
-
-# Group Means
-wt_emmeans <- map_dfr(
-  list(
-    "Well-Studied Community" = sc_wt$pass_1
-  ),
-  function(x){
-    region_posthoc <- emmeans(
-      x, 
-      list(pairwise ~ survey_area), 
-      adjust = "tukey",
-      type = "response")
-    region_posthoc[[1]] %>% as.data.frame()
-  }, .id = "community"
-)
-
-
-
-## Trends
-
-# Group Means
-wt_emtrends <- map_dfr(
-  list(
-    "Well-Studied Community" = sc_wt$pass_1
-  ),
-  function(mod_x){
-    region_posthoc <- emtrends(
-      object = mod_x, 
-      specs  =  ~ survey_area,
-      var    = "yr_num",
-      adjust = "bonf")
-    region_posthoc %>% 
-    as_tibble()
-  }, .id = "community"
-)
-```
-
-
-
-```{r}
-#| label: median weight fig
-
-
-
-# Plotting emmean
-
-# Plot
-wt_mean_p <- ggplot(
-  wt_emmeans,
-  aes(survey_area, response, ymin = lower.CL, ymax = upper.CL,  color = community)) +
-  geom_pointrange(
-    position = position_dodge(width = 0.5), 
-    alpha = 1) +
-  scale_color_gmri() +
-  scale_x_discrete(guide = guide_axis(n.dodge = 2)) +
-  labs(
-    y = "Median Weight (kg)",
-    x = NULL,
-    color = "Finfish Community",
-    title = "Estimated Marginal Means")
-
-
-# Plotting Slope 
-wt_trends_p <- wt_emtrends  %>% 
-    mutate(flag_alpha = ifelse(lower.CL > 0 | upper.CL <0, 1, 0.4)) %>% 
-    ggplot(aes(color = community, survey_area, yr_num.trend, ymin = lower.CL, ymax = upper.CL)) +
-    geom_hline(yintercept = 0, linetype = 2, color = "black") +
-    geom_pointrange(aes(alpha = I(flag_alpha)),
-                    position = position_dodge(width = 0.5)) +
-    scale_color_gmri() +
-    scale_x_discrete(guide = guide_axis(n.dodge = 2)) +
-    labs(
-      title = "Estimated Marginal Means of Linear Trends",
-      x = "Region",
-      y = "beta",
-      color = "Finfish Community")
-
- 
-
-# Stack them
-(wt_mean_p / wt_trends_p) + plot_layout(guides = "collect")
-```
-
-
-
-
-## Weigt Spectra
-
-
-
-```{r}
-#| label: weight spectra emmeans
-
-# Group Means
-wtb_emmeans <- map_dfr(
-  list(
-    "Well-Studied Community" = sc_wtb$pass_1
-  ),
-  function(x){
-    region_posthoc <- emmeans(
-      x, 
-      list(pairwise ~ survey_area), 
-      adjust = "tukey",
-      type = "response")
-    region_posthoc[[1]] %>% as.data.frame()
-  }, .id = "community"
-)
-
-
-
-## Trends
-
-# Group Means
-wtb_emtrends <- map_dfr(
-  list(
-    "Well-Studied Community" = sc_lenb$pass_1
-  ),
-  function(mod_x){
-    region_posthoc <- emtrends(
-      object = mod_x, 
-      specs  =  ~ survey_area,
-      var    = "yr_num",
-      adjust = "bonf")
-    region_posthoc %>% 
-    as_tibble()
-  }, .id = "community"
-)
-```
-
-
-
-```{r}
-#| label: weight spectra fig
-
-
-
-# Plotting emmean
-
-# Plot
-wtb_mean_p <- ggplot(
-  wtb_emmeans,
-  aes(survey_area, emmean, ymin = lower.CL, ymax = upper.CL,  color = community)) +
-  geom_pointrange(
-    position = position_dodge(width = 0.5), 
-    alpha = 1) +
-  scale_color_gmri() +
-  scale_x_discrete(guide = guide_axis(n.dodge = 2)) +
-  labs(
-    y = "Body Mass Spectra (b)",
-    x = NULL,
-    color = "Finfish Community",
-    title = "Estimated Marginal Means")
-
-
-# Plotting Slope 
-wtb_trends_p <- wtb_emtrends  %>% 
-    mutate(flag_alpha = ifelse(lower.CL > 0 | upper.CL <0, 1, 0.4)) %>% 
-    ggplot(aes(color = community, survey_area, yr_num.trend, ymin = lower.CL, ymax = upper.CL)) +
-    geom_hline(yintercept = 0, linetype = 2, color = "black") +
-    geom_pointrange(aes(alpha = I(flag_alpha)),
-                    position = position_dodge(width = 0.5)) +
-    scale_color_gmri() +
-    scale_x_discrete(guide = guide_axis(n.dodge = 2)) +
-    labs(
-      title = "Estimated Marginal Means of Linear Trends",
-      x = "Region",
-      y = "beta",
-      color = "Finfish Community")
-
- 
-
-# Stack them
-(wtb_mean_p / wtb_trends_p) + plot_layout(guides = "collect")
-```
-
-
-
-
-## Pass 1 Tables 
+# Pass 1: Tables 
 
 ```{r}
 pass1_mods <- list(
@@ -568,6 +198,384 @@ mod_1 <- sc_wtb$pass_1
 
 
 
+# Pass 1: Marginal Means
+
+
+::: {.panel-tabset}
+
+
+
+###  Median Length  
+
+
+
+```{r}
+#| label: median length emmeans
+len_emmeans <- map_dfr(
+  list(
+    "Data-Limited Community" = lc_len$pass_1,
+    "Well-Studied Community" = sc_len$pass_1
+    ),
+  function(x){
+    region_posthoc <- emmeans(
+    x, 
+    list(pairwise ~ survey_area), 
+    adjust = "tukey",
+    type = "response")
+  region_posthoc[[1]] %>% as.data.frame()
+  }, .id = "community"
+)
+
+
+
+## Trends
+
+# Group Means
+len_emtrends <- map_dfr(
+  list(
+    "Data-Limited Community" = lc_len$pass_1,
+    "Well-Studied Community" = sc_len$pass_1
+  ),
+  function(mod_x){
+    region_posthoc <- emtrends(
+      object = mod_x, 
+      specs  =  ~ survey_area,
+      var    = "yr_num",
+      adjust = "bonf")
+    region_posthoc %>% 
+    as_tibble()
+  }, .id = "community"
+)
+```
+
+
+
+
+```{r}
+#| label: median length fig
+
+
+
+# Plotting emmean
+
+# Plot
+len_mean_p <- ggplot(
+  len_emmeans,
+  aes(survey_area, emmean, ymin = lower.CL, ymax = upper.CL,  color = community)) +
+  geom_pointrange(
+    position = position_dodge(width = 0.5), 
+    alpha = 1) +
+  scale_color_gmri() +
+  scale_x_discrete(guide = guide_axis(n.dodge = 2)) +
+  labs(
+    y = "Length Spectra Slope (b)",
+    x = NULL,
+    color = "Finfish Community",
+    title = "Estimated Marginal Means")
+
+
+# Plotting Slope 
+len_trends_p <- len_emtrends  %>% 
+    mutate(flag_alpha = ifelse(lower.CL > 0 | upper.CL <0, 1, 0.4)) %>% 
+    ggplot(aes(color = community, survey_area, yr_num.trend, ymin = lower.CL, ymax = upper.CL)) +
+    geom_hline(yintercept = 0, linetype = 2, color = "black") +
+    geom_pointrange(aes(alpha = I(flag_alpha)),
+                    position = position_dodge(width = 0.5)) +
+    scale_color_gmri() +
+    scale_x_discrete(guide = guide_axis(n.dodge = 2)) +
+    labs(
+      title = "Estimated Marginal Means of Linear Trends",
+      x = "Region",
+      y = "beta",
+      color = "Finfish Community")
+
+ 
+
+# Stack them
+(len_mean_p / len_trends_p) + plot_layout(guides = "collect") & theme(legend.position = "bottom")
+```
+
+
+
+### Length Spectra 
+
+
+
+```{r}
+#| label: length spectra emmeans
+# Group Means
+lenb_emmeans <- map_dfr(
+  list(
+    "Data-Limited Community" = lc_lenb$pass_1,
+    "Well-Studied Community" = sc_lenb$pass_1
+  ),
+  function(x){
+    region_posthoc <- emmeans(
+      x, 
+      list(pairwise ~ survey_area), 
+      adjust = "tukey",
+      type = "response")
+    region_posthoc[[1]] %>% as.data.frame()
+  }, .id = "community"
+)
+
+
+
+## Trends
+
+# Group Means
+lenb_emtrends <- map_dfr(
+  list(
+    "Data-Limited Community" = lc_lenb$pass_1,
+    "Well-Studied Community" = sc_lenb$pass_1
+  ),
+  function(mod_x){
+    region_posthoc <- emtrends(
+      object = mod_x, 
+      specs  =  ~ survey_area,
+      var    = "yr_num",
+      adjust = "bonf")
+    region_posthoc %>% 
+    as_tibble()
+  }, .id = "community"
+)
+```
+
+
+
+```{r}
+#| label: length spectra fig
+
+
+
+# Plotting emmean
+
+# Plot
+lenb_mean_p <- ggplot(
+  lenb_emmeans,
+  aes(survey_area, emmean, ymin = lower.CL, ymax = upper.CL,  color = community)) +
+  geom_pointrange(
+    position = position_dodge(width = 0.5), 
+    alpha = 1) +
+  scale_color_gmri() +
+  scale_x_discrete(guide = guide_axis(n.dodge = 2)) +
+  labs(
+    y = "Length Spectra Slope (b)",
+    x = NULL,
+    color = "Finfish Community",
+    title = "Estimated Marginal Means")
+
+
+# Plotting Slope 
+lenb_trends_p <- lenb_emtrends  %>% 
+    mutate(flag_alpha = ifelse(lower.CL > 0 | upper.CL <0, 1, 0.4)) %>% 
+    ggplot(aes(color = community, survey_area, yr_num.trend, ymin = lower.CL, ymax = upper.CL)) +
+    geom_hline(yintercept = 0, linetype = 2, color = "black") +
+    geom_pointrange(aes(alpha = I(flag_alpha)),
+                    position = position_dodge(width = 0.5)) +
+    scale_color_gmri() +
+    scale_x_discrete(guide = guide_axis(n.dodge = 2)) +
+    labs(
+      title = "Estimated Marginal Means of Linear Trends",
+      x = "Region",
+      y = "beta",
+      color = "Finfish Community")
+
+ 
+
+# Stack them
+(lenb_mean_p / lenb_trends_p) + plot_layout(guides = "collect")  & theme(legend.position = "bottom")
+```
+
+
+### Median Weight
+
+
+
+
+```{r}
+#| label: median weight emmeans
+
+# Group Means
+wt_emmeans <- map_dfr(
+  list(
+    "Well-Studied Community" = sc_wt$pass_1
+  ),
+  function(x){
+    region_posthoc <- emmeans(
+      x, 
+      list(pairwise ~ survey_area), 
+      adjust = "tukey",
+      type = "response")
+    region_posthoc[[1]] %>% as.data.frame()
+  }, .id = "community"
+)
+
+
+
+## Trends
+
+# Group Means
+wt_emtrends <- map_dfr(
+  list(
+    "Well-Studied Community" = sc_wt$pass_1
+  ),
+  function(mod_x){
+    region_posthoc <- emtrends(
+      object = mod_x, 
+      specs  =  ~ survey_area,
+      var    = "yr_num",
+      adjust = "bonf")
+    region_posthoc %>% 
+    as_tibble()
+  }, .id = "community"
+)
+```
+
+
+
+```{r}
+#| label: median weight fig
+
+
+
+# Plotting emmean
+
+# Plot
+wt_mean_p <- ggplot(
+  wt_emmeans,
+  aes(survey_area, response, ymin = lower.CL, ymax = upper.CL,  color = community)) +
+  geom_pointrange(
+    position = position_dodge(width = 0.5), 
+    alpha = 1) +
+  scale_color_gmri() +
+  scale_x_discrete(guide = guide_axis(n.dodge = 2)) +
+  labs(
+    y = "Median Weight (kg)",
+    x = NULL,
+    color = "Finfish Community",
+    title = "Estimated Marginal Means")
+
+
+# Plotting Slope 
+wt_trends_p <- wt_emtrends  %>% 
+    mutate(flag_alpha = ifelse(lower.CL > 0 | upper.CL <0, 1, 0.4)) %>% 
+    ggplot(aes(color = community, survey_area, yr_num.trend, ymin = lower.CL, ymax = upper.CL)) +
+    geom_hline(yintercept = 0, linetype = 2, color = "black") +
+    geom_pointrange(aes(alpha = I(flag_alpha)),
+                    position = position_dodge(width = 0.5)) +
+    scale_color_gmri() +
+    scale_x_discrete(guide = guide_axis(n.dodge = 2)) +
+    labs(
+      title = "Estimated Marginal Means of Linear Trends",
+      x = "Region",
+      y = "beta",
+      color = "Finfish Community")
+
+ 
+
+# Stack them
+(wt_mean_p / wt_trends_p) + plot_layout(guides = "collect")  & theme(legend.position = "bottom")
+```
+
+
+
+
+### Weight Spectra
+
+
+
+```{r}
+#| label: weight spectra emmeans
+
+# Group Means
+wtb_emmeans <- map_dfr(
+  list(
+    "Well-Studied Community" = sc_wtb$pass_1
+  ),
+  function(x){
+    region_posthoc <- emmeans(
+      x, 
+      list(pairwise ~ survey_area), 
+      adjust = "tukey",
+      type = "response")
+    region_posthoc[[1]] %>% as.data.frame()
+  }, .id = "community"
+)
+
+
+
+## Trends
+
+# Group Means
+wtb_emtrends <- map_dfr(
+  list(
+    "Well-Studied Community" = sc_lenb$pass_1
+  ),
+  function(mod_x){
+    region_posthoc <- emtrends(
+      object = mod_x, 
+      specs  =  ~ survey_area,
+      var    = "yr_num",
+      adjust = "bonf")
+    region_posthoc %>% 
+    as_tibble()
+  }, .id = "community"
+)
+```
+
+
+
+```{r}
+#| label: weight spectra fig
+
+
+
+# Plotting emmean
+
+# Plot
+wtb_mean_p <- ggplot(
+  wtb_emmeans,
+  aes(survey_area, emmean, ymin = lower.CL, ymax = upper.CL,  color = community)) +
+  geom_pointrange(
+    position = position_dodge(width = 0.5), 
+    alpha = 1) +
+  scale_color_gmri() +
+  scale_x_discrete(guide = guide_axis(n.dodge = 2)) +
+  labs(
+    y = "Body Mass Spectra (b)",
+    x = NULL,
+    color = "Finfish Community",
+    title = "Estimated Marginal Means")
+
+
+# Plotting Slope 
+wtb_trends_p <- wtb_emtrends  %>% 
+    mutate(flag_alpha = ifelse(lower.CL > 0 | upper.CL <0, 1, 0.4)) %>% 
+    ggplot(aes(color = community, survey_area, yr_num.trend, ymin = lower.CL, ymax = upper.CL)) +
+    geom_hline(yintercept = 0, linetype = 2, color = "black") +
+    geom_pointrange(aes(alpha = I(flag_alpha)),
+                    position = position_dodge(width = 0.5)) +
+    scale_color_gmri() +
+    scale_x_discrete(guide = guide_axis(n.dodge = 2)) +
+    labs(
+      title = "Estimated Marginal Means of Linear Trends",
+      x = "Region",
+      y = "beta",
+      color = "Finfish Community")
+
+ 
+
+# Stack them
+(wtb_mean_p / wtb_trends_p) + plot_layout(guides = "collect")  & theme(legend.position = "bottom")
+```
+
+:::
+
+
+
+
+
 
 ```{r}
 pass2_mods <- list(
@@ -581,7 +589,7 @@ pass2_mods <- list(
 ```
 
 
-## Pass 2 Tables
+# Pass 2: Tables
 
 
 
@@ -686,4 +694,108 @@ mod_1 <- sc_wtb$pass_2
 :::
 
 
+# Pass 2: Effects
+
+
+
+::: {.panel-tabset}
+
+### Median Length
+
+```{r}
+
+# Small Community
+mod_1 <- sc_len$pass_2 
+sc_len_table1 <- mod_1 %>% 
+  gtsummary::tbl_regression()  %>% 
+  add_global_p(keep = T) %>% 
+  bold_p(t = 0.05)  %>%
+  bold_labels() %>%
+  italicize_levels() 
+
+
+# Large Community
+mod_1 <- lc_len$pass_2 
+lc_len_table1 <- mod_1 %>% 
+  gtsummary::tbl_regression()  %>% 
+  add_global_p(keep = T) %>% 
+  bold_p(t = 0.05)  %>%
+  bold_labels() %>%
+  italicize_levels() 
+
+tbl_stack(
+  list(sc_len_table1,
+  lc_len_table1),
+  group_header = c("Well-Studied Community", "Data-Limited Community")
+)
+
+
+```
+
+
+### Length Spectra
+
+
+```{r}
+
+# Small Community
+mod_1 <- sc_lenb$pass_2 
+sc_lenb_table1 <- mod_1 %>% 
+  gtsummary::tbl_regression()  %>% 
+  add_global_p(keep = T) %>% 
+  bold_p(t = 0.05)  %>%
+  bold_labels() %>%
+  italicize_levels() 
+
+
+# Large Community
+mod_1 <- lc_lenb$pass_2 
+lc_lenb_table1 <- mod_1 %>% 
+  gtsummary::tbl_regression()  %>% 
+  add_global_p(keep = T) %>% 
+  bold_p(t = 0.05)  %>%
+  bold_labels() %>%
+  italicize_levels() 
+
+tbl_stack(
+  list(sc_lenb_table1,
+  lc_lenb_table1),
+  group_header = c("Well-Studied Community", "Data-Limited Community")
+)
+
+
+```
+
+### Median Weight
+
+```{r}
+# Small Community
+mod_1 <- sc_wt$pass_2 
+(sc_wt_table1 <- mod_1 %>% 
+  gtsummary::tbl_regression()  %>% 
+  add_global_p(keep = T) %>% 
+  bold_p(t = 0.05)  %>%
+  bold_labels() %>%
+  italicize_levels() )
+```
+
+
+### Mass Spectra
+
+```{r}
+# Small Community
+mod_1 <- sc_wtb$pass_2 
+(sc_wtb_table1 <- mod_1 %>% 
+  gtsummary::tbl_regression()  %>% 
+  add_global_p(keep = T) %>% 
+  bold_p(t = 0.05)  %>%
+  bold_labels() %>%
+  italicize_levels() )
+```
+
+
+
+
 :::
+
+
