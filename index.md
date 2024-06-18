@@ -6,6 +6,7 @@ This index page serves as a link directory to results reports. Use the following
 
 ### TOC
 
- 1. [Linear Modeling Results)](https://adamkemberling.github.io/Spectra_Northeast/Code/R/modeling/lm_models/lm_summary_materials.html)
+ 1. [Linear Modeling Results](https://adamkemberling.github.io/Spectra_Northeast/Code/R/modeling/lm_models/lm_summary_materials.html)
+ 
  
  
