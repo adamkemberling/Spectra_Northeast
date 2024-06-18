@@ -39,10 +39,7 @@ library(gt)
 theme_set(theme_gmri(rect = element_rect(fill = "white", color = NA)))
 ```
 
-
-
-
-#  Source Modeling Sripts
+# Source Modeling Sripts
 
 ```{r}
 #| label: source-model-scripts
@@ -60,12 +57,7 @@ theme_set(theme_gmri(rect = element_rect(fill = "white", color = NA)))
 
 ```
 
-
-
-
-
 ### Load Models/Data
-
 
 ```{r}
 #| label: load rds lists
@@ -79,8 +71,7 @@ lc_len <- read_rds(here::here("Data/models_and_results/lc_medlen.RDS"))
 lc_lenb <- read_rds(here::here("Data/models_and_results/lc_lenspectra.RDS"))
 ```
 
-
-# Pass 1: Tables 
+# Pass 1: Tables
 
 ```{r}
 pass1_mods <- list(
@@ -96,9 +87,7 @@ pass1_mods <- list(
 
 ```
 
-
-::: {.panel-tabset}
-
+::: panel-tabset
 ### Median Length
 
 ```{r}
@@ -131,9 +120,7 @@ tbl_stack(
 
 ```
 
-
 ### Length Spectra
-
 
 ```{r}
 
@@ -178,7 +165,6 @@ mod_1 <- sc_wt$pass_1
   italicize_levels() )
 ```
 
-
 ### Mass Spectra
 
 ```{r}
@@ -191,23 +177,12 @@ mod_1 <- sc_wtb$pass_1
   bold_labels() %>%
   italicize_levels() )
 ```
-
-
-
 :::
-
-
 
 # Pass 1: Marginal Means
 
-
-::: {.panel-tabset}
-
-
-
-###  Median Length  
-
-
+::: panel-tabset
+### Median Length
 
 ```{r}
 #| label: median length emmeans
@@ -247,9 +222,6 @@ len_emtrends <- map_dfr(
   }, .id = "community"
 )
 ```
-
-
-
 
 ```{r}
 #| label: median length fig
@@ -295,11 +267,7 @@ len_trends_p <- len_emtrends  %>%
 (len_mean_p / len_trends_p) + plot_layout(guides = "collect") & theme(legend.position = "bottom")
 ```
 
-
-
-### Length Spectra 
-
-
+### Length Spectra
 
 ```{r}
 #| label: length spectra emmeans
@@ -340,8 +308,6 @@ lenb_emtrends <- map_dfr(
   }, .id = "community"
 )
 ```
-
-
 
 ```{r}
 #| label: length spectra fig
@@ -387,11 +353,7 @@ lenb_trends_p <- lenb_emtrends  %>%
 (lenb_mean_p / lenb_trends_p) + plot_layout(guides = "collect")  & theme(legend.position = "bottom")
 ```
 
-
 ### Median Weight
-
-
-
 
 ```{r}
 #| label: median weight emmeans
@@ -431,8 +393,6 @@ wt_emtrends <- map_dfr(
   }, .id = "community"
 )
 ```
-
-
 
 ```{r}
 #| label: median weight fig
@@ -478,12 +438,7 @@ wt_trends_p <- wt_emtrends  %>%
 (wt_mean_p / wt_trends_p) + plot_layout(guides = "collect")  & theme(legend.position = "bottom")
 ```
 
-
-
-
 ### Weight Spectra
-
-
 
 ```{r}
 #| label: weight spectra emmeans
@@ -523,8 +478,6 @@ wtb_emtrends <- map_dfr(
   }, .id = "community"
 )
 ```
-
-
 
 ```{r}
 #| label: weight spectra fig
@@ -569,13 +522,7 @@ wtb_trends_p <- wtb_emtrends  %>%
 # Stack them
 (wtb_mean_p / wtb_trends_p) + plot_layout(guides = "collect")  & theme(legend.position = "bottom")
 ```
-
 :::
-
-
-
-
-
 
 ```{r}
 pass2_mods <- list(
@@ -588,13 +535,9 @@ pass2_mods <- list(
 
 ```
 
-
 # Pass 2: Tables
 
-
-
-::: {.panel-tabset}
-
+::: panel-tabset
 ### Median Length
 
 ```{r}
@@ -627,9 +570,7 @@ tbl_stack(
 
 ```
 
-
 ### Length Spectra
-
 
 ```{r}
 
@@ -674,7 +615,6 @@ mod_1 <- sc_wt$pass_2
   italicize_levels() )
 ```
 
-
 ### Mass Spectra
 
 ```{r}
@@ -687,81 +627,121 @@ mod_1 <- sc_wtb$pass_2
   bold_labels() %>%
   italicize_levels() )
 ```
-
-
-
-
 :::
-
 
 # Pass 2: Effects
 
-
-
-::: {.panel-tabset}
-
+::: panel-tabset
 ### Median Length
 
 ```{r}
 
-# Small Community
-mod_1 <- sc_len$pass_2 
-sc_len_table1 <- mod_1 %>% 
-  gtsummary::tbl_regression()  %>% 
-  add_global_p(keep = T) %>% 
-  bold_p(t = 0.05)  %>%
-  bold_labels() %>%
-  italicize_levels() 
-
-
-# Large Community
-mod_1 <- lc_len$pass_2 
-lc_len_table1 <- mod_1 %>% 
-  gtsummary::tbl_regression()  %>% 
-  add_global_p(keep = T) %>% 
-  bold_p(t = 0.05)  %>%
-  bold_labels() %>%
-  italicize_levels() 
-
-tbl_stack(
-  list(sc_len_table1,
-  lc_len_table1),
-  group_header = c("Well-Studied Community", "Data-Limited Community")
+# Get ggpredict trends
+len_temp_trends <- bind_rows(
+  list(
+    "Well-Studied Community" = as_tibble(ggpredict(sc_len$pass_2, terms = list("bot_temp" = seq(2,20, by = .5))) ) ,
+    "Data-Limited Community" = as_tibble(ggpredict(lc_len$pass_2, terms = list("bot_temp" = seq(2,20, by = .5))) ) 
+  ), .id = "community"
 )
+
+ggplot(
+  len_temp_trends,
+  aes(x, predicted, ymin = conf.low, ymax = conf.high, fill = community)) +
+    geom_ribbon(alpha = 0.1) +
+    geom_line() +
+    scale_fill_gmri() +
+    labs(
+      y = "Median Length (cm)",
+      x = "Bottom Temperature",
+      title = "Marginal Mean Trend",
+      fill = "Finfish Community"
+    )
+
 
 
 ```
 
+```{r}
+
+# Get ggpredict trends
+len_landings_trends <- bind_rows(
+  list(
+    "Well-Studied Community" = as_tibble(ggpredict(sc_len$pass_2, terms = list("landings" = 10^c(1:10))) ) ,
+    "Data-Limited Community" = as_tibble(ggpredict(lc_len$pass_2, terms = list("landings" = 10^c(1:10))) ) 
+  ), .id = "community"
+)
+
+ggplot(
+  len_landings_trends,
+  aes(x, predicted, ymin = conf.low, ymax = conf.high, fill = community)) +
+    geom_ribbon(alpha = 0.1) +
+    geom_line() +
+    scale_fill_gmri() +
+  scale_x_log10(labels = label_log(base = 10)) +
+    labs(
+      y = "Median Length (cm)",
+      x = "Total Landings (lb.)",
+      title = "Marginal Mean Trend",
+      fill = "Finfish Community"
+    )
+
+
+
+```
 
 ### Length Spectra
 
+```{r}
+
+# Get ggpredict trends
+lenb_temp_trends <- bind_rows(
+  list(
+    "Well-Studied Community" = as_tibble(ggpredict(sc_lenb$pass_2, terms = list("bot_temp" = seq(2,20, by = .5))) ) ,
+    "Data-Limited Community" = as_tibble(ggpredict(lc_lenb$pass_2, terms = list("bot_temp" = seq(2,20, by = .5))) ) 
+  ), .id = "community"
+)
+
+ggplot(
+  lenb_temp_trends,
+  aes(x, predicted, ymin = conf.low, ymax = conf.high, fill = community)) +
+    geom_ribbon(alpha = 0.1) +
+    geom_line() +
+    scale_fill_gmri() +
+    labs(
+      y = "Length Spectra Slope (b)",
+      x = "Bottom Temperature",
+      fill = "Finfish Community",
+      title = "Marginal Mean Trend"
+    )
+
+
+
+```
 
 ```{r}
 
-# Small Community
-mod_1 <- sc_lenb$pass_2 
-sc_lenb_table1 <- mod_1 %>% 
-  gtsummary::tbl_regression()  %>% 
-  add_global_p(keep = T) %>% 
-  bold_p(t = 0.05)  %>%
-  bold_labels() %>%
-  italicize_levels() 
-
-
-# Large Community
-mod_1 <- lc_lenb$pass_2 
-lc_lenb_table1 <- mod_1 %>% 
-  gtsummary::tbl_regression()  %>% 
-  add_global_p(keep = T) %>% 
-  bold_p(t = 0.05)  %>%
-  bold_labels() %>%
-  italicize_levels() 
-
-tbl_stack(
-  list(sc_lenb_table1,
-  lc_lenb_table1),
-  group_header = c("Well-Studied Community", "Data-Limited Community")
+# Get ggpredict trends
+lenb_landings_trends <- bind_rows(
+  list(
+    "Well-Studied Community" = as_tibble(ggpredict(sc_lenb$pass_2, terms = list("landings" = 10^c(1:10))) ) ,
+    "Data-Limited Community" = as_tibble(ggpredict(lc_lenb$pass_2, terms = list("landings" = 10^c(1:10))) ) 
+  ), .id = "community"
 )
+
+ggplot(
+  lenb_landings_trends,
+  aes(x, predicted, ymin = conf.low, ymax = conf.high, fill = community)) +
+    geom_ribbon(alpha = 0.1) +
+    geom_line() +
+    scale_fill_gmri() +
+  scale_x_log10(labels = label_log(base = 10)) +
+    labs(
+      y = "Length Spectra Slope (b)",
+      x = "Total Landings (lb.)",
+      title = "Marginal Mean Trend",
+      fill = "Finfish Community"
+    )
+
 
 
 ```
@@ -769,33 +749,127 @@ tbl_stack(
 ### Median Weight
 
 ```{r}
-# Small Community
-mod_1 <- sc_wt$pass_2 
-(sc_wt_table1 <- mod_1 %>% 
-  gtsummary::tbl_regression()  %>% 
-  add_global_p(keep = T) %>% 
-  bold_p(t = 0.05)  %>%
-  bold_labels() %>%
-  italicize_levels() )
+
+# Get ggpredict trends
+wt_temp_trends <- bind_rows(
+  list(
+    "Well-Studied Community" = as_tibble(ggpredict(sc_wt$pass_2, terms = list("bot_temp" = seq(2,20, by = .5))) )  
+  ), .id = "community"
+)
+
+ggplot(
+  wt_temp_trends,
+  aes(x, predicted, ymin = conf.low, ymax = conf.high, fill = community)) +
+    geom_ribbon(alpha = 0.1) +
+    geom_line() +
+    scale_fill_gmri() +
+    labs(
+      y = "MEdian Weight (kg)",
+      x = "Bottom Temperature",
+      fill = "Finfish Community",
+      title = "Marginal Mean Trend"
+    )
+
+
+
 ```
 
+```{r}
+
+# Get ggpredict trends
+wt_landings_trends <- bind_rows(
+  list(
+    "Well-Studied Community" = as_tibble(ggpredict(sc_wt$pass_2, terms = list("landings" = 10^c(1:10))) ) 
+  ), .id = "community"
+)
+
+ggplot(
+  wt_landings_trends,
+  aes(x, predicted, ymin = conf.low, ymax = conf.high, fill = community)) +
+    geom_ribbon(alpha = 0.1) +
+    geom_line() +
+    scale_fill_gmri() +
+  scale_x_log10(labels = label_log(base = 10)) +
+    labs(
+      y = "Median Weight (kg)",
+      x = "Total Landings (lb.)",
+      title = "Marginal Mean Trend",
+      fill = "Finfish Community"
+    )
+
+
+
+```
 
 ### Mass Spectra
 
 ```{r}
-# Small Community
-mod_1 <- sc_wtb$pass_2 
-(sc_wtb_table1 <- mod_1 %>% 
-  gtsummary::tbl_regression()  %>% 
-  add_global_p(keep = T) %>% 
-  bold_p(t = 0.05)  %>%
-  bold_labels() %>%
-  italicize_levels() )
+
+# Get ggpredict trends
+wtb_temp_trends <- bind_rows(
+  list(
+    "Well-Studied Community" = as_tibble(ggpredict(sc_wtb$pass_2, terms = list("bot_temp" = seq(2,20, by = .5))) )  
+  ), .id = "community"
+)
+
+ggplot(
+  wtb_temp_trends,
+  aes(x, predicted, ymin = conf.low, ymax = conf.high, fill = community)) +
+    geom_ribbon(alpha = 0.1) +
+    geom_line() +
+    scale_fill_gmri() +
+    labs(
+      y = "Mass Spectra Slope (b)",
+      x = "Bottom Temperature",
+      fill = "Finfish Community",
+      title = "Marginal Mean Trend"
+    )
+
+
+
 ```
 
+```{r}
+
+# Get ggpredict trends
+wtb_landings_trends <- bind_rows(
+  list(
+    "Well-Studied Community" = as_tibble(ggpredict(sc_wtb$pass_2, terms = list("landings" = 10^c(1:10))) ) 
+  ), .id = "community"
+)
+
+ggplot(
+  wt_landings_trends,
+  aes(x, predicted, ymin = conf.low, ymax = conf.high, fill = community)) +
+    geom_ribbon(alpha = 0.1) +
+    geom_line() +
+    scale_fill_gmri() +
+  scale_x_log10(labels = label_log(base = 10)) +
+    labs(
+      y = "Mass Spectra Slope (b)",
+      x = "Total Landings (lb.)",
+      title = "Marginal Mean Trend",
+      fill = "Finfish Community"
+    )
 
 
 
+```
 :::
+
+# Comparative Performance
+
+```{r}
+#| eval: false
+#| label: which pass is better?
+
+# All models from first pass perform better than second pass
+plot(compare_performance(sc_len$pass_1, sc_len$pass_2))
+plot(compare_performance(lc_len$pass_1, lc_len$pass_2))
+plot(compare_performance(sc_lenb$pass_1, sc_lenb$pass_2))
+plot(compare_performance(lc_lenb$pass_1, lc_lenb$pass_2))
+plot(compare_performance(sc_wt$pass_1, sc_wt$pass_2))
+plot(compare_performance(sc_wtb$pass_1, sc_wtb$pass_2))
+```
 
 
