@@ -200,12 +200,12 @@ mod_1 <- sc_wtb$pass_1
 #| label: median length emmeans
 len_emmeans <- map_dfr(
   list(
-    "Data-Limited Community" = lc_len$pass_1,
-    "Well-Studied Community" = sc_len$pass_1
+    "Data-Limited Community" = lc_len,
+    "Well-Studied Community" = sc_len
     ),
   function(x){
     region_posthoc <- emmeans(
-    x, 
+    pluck(x, "pass_1"), 
     list(pairwise ~ survey_area), 
     adjust = "tukey",
     type = "response")
@@ -226,7 +226,7 @@ ggplot(
   scale_color_manual(values = manual_colors) +
   scale_x_discrete(guide = guide_axis(n.dodge = 2)) +
   labs(
-    y = "Length Spectra Slope (b)",
+    y = "Median Length (cm)",
     x = NULL,
     color = "Finfish Community",
     title = "Estimated Marginal Means")
@@ -246,15 +246,14 @@ len_emmeans %>%
 ## Trends
 len_emtrends <- map_dfr(
   list(
-    "Data-Limited Community" = lc_len$pass_1,
-    "Well-Studied Community" = sc_len$pass_1),
-  function(mod_x){
+    "Data-Limited Community" = lc_len,
+    "Well-Studied Community" = sc_len),
+  function(x){
     region_posthoc <- emtrends(
-      object = mod_x, 
+      object = pluck(x, "pass_1"), 
       specs  =  ~ survey_area,
       var    = "yr_num",
-      adjust = "bonf")
-    region_posthoc %>% 
+      adjust = "bonf") %>% 
     as_tibble()
   }, .id = "community"
 )
@@ -294,15 +293,15 @@ len_emtrends %>%
 # Group Means
 wt_emmeans <- map_dfr(
   list(
-    "Well-Studied Community" = sc_wt$pass_1
+    "Well-Studied Community" = sc_wt
   ),
   function(x){
     region_posthoc <- emmeans(
-      x, 
+      pluck(x, "pass_1"), 
       list(pairwise ~ survey_area), 
       adjust = "tukey",
-      type = "response")
-    region_posthoc[[1]] %>% 
+      type = "response") %>% 
+      pluck(1) %>% 
       as.data.frame()
   }, .id = "community"
 )
@@ -337,15 +336,14 @@ wt_emmeans %>%
 # Group Means Trends
 wt_emtrends <- map_dfr(
   list(
-    "Well-Studied Community" = sc_wt$pass_1
+    "Well-Studied Community" = sc_wt
   ),
-  function(mod_x){
+  function(x){
     region_posthoc <- emtrends(
-      object = mod_x, 
+      object = pluck(x, "pass_1"), 
       specs  =  ~ survey_area,
       var    = "yr_num",
-      adjust = "bonf")
-    region_posthoc %>% 
+      adjust = "bonf") %>% 
     as_tibble()
   }, .id = "community"
 )
@@ -439,12 +437,12 @@ lenb_emmeans %>%
 # # Group Means - treated the same
 # lenb_emtrends <- map_dfr(
 #   list(
-#     "Data-Limited Community" = lc_lenb$pass_1,
-#     "Well-Studied Community" = sc_lenb$pass_1
+#     "Data-Limited Community" = lc_lenb,
+#     "Well-Studied Community" = sc_lenb
 #   ),
-#   function(mod_x){
+#   function(x){
 #     region_posthoc <- emtrends(
-#       object = mod_x, 
+#       object = pluck(x, "pass_1"), 
 #       specs  =  ~ survey_area + season,
 #       var    = "yr_num",
 #       adjust = "bonf")
@@ -456,7 +454,7 @@ lenb_emmeans %>%
 lenb_emtrends <- bind_rows(
   list(
     "Data-Limited Community" = emtrends(
-      lc_lenb$pass_1, 
+      pluck(lc_lenb, "pass_1"), 
       specs  =  ~ survey_area,
       var    = "yr_num",
       adjust = "bonf") %>%
@@ -464,7 +462,7 @@ lenb_emtrends <- bind_rows(
       mutate(season = "No Seasonal Effect"),
     
     "Well-Studied Community" = emtrends(
-      sc_lenb$pass_1,
+      pluck(sc_lenb, "pass_1"),
       specs  =  ~ survey_area + season,
       var    = "yr_num",
       adjust = "bonf") %>%
@@ -481,8 +479,7 @@ lenb_emtrends  %>%
     geom_hline(yintercept = 0, linetype = 2, color = "black") +
     geom_pointrange(aes(alpha = I(flag_alpha)),
                     position = position_dodge(width = 0.5)) +
-     #scale_color_manual(values = manual_colors) +
-     scale_color_gmri(reverse = T) +
+    scale_color_gmri(reverse = T) +
     facet_wrap(~community, ncol = 1) +
     scale_x_discrete(guide = guide_axis(n.dodge = 2)) +
     labs(
@@ -509,15 +506,15 @@ lenb_emtrends %>%
 # Group Means
 wtb_emmeans <- map_dfr(
   list(
-    "Well-Studied Community" = sc_wtb$pass_1
-  ),
+    "Well-Studied Community" = sc_wtb),
   function(x){
     region_posthoc <- emmeans(
-      x, 
+      pluck(x, "pass_1"),
       list(pairwise ~ survey_area), 
       adjust = "tukey",
-      type = "response")
-    region_posthoc[[1]] %>% as.data.frame()
+      type = "response") %>% 
+      pluck(1) %>% 
+      as.data.frame()
   }, .id = "community"
 )
 
@@ -555,11 +552,11 @@ lenb_emmeans %>%
 # Group Means
 wtb_emtrends <- map_dfr(
   list(
-    "Well-Studied Community" = sc_lenb$pass_1
+    "Well-Studied Community" = sc_lenb
   ),
-  function(mod_x){
+  function(x){
     region_posthoc <- emtrends(
-      object = mod_x, 
+      object = pluck(x, "pass_1"), 
       specs  =  ~ survey_area,
       var    = "yr_num",
       adjust = "bonf")
@@ -736,13 +733,7 @@ ggplot(
       fill = "Finfish Community"
     )
 
-# # Coefficient Table
-# emmeans(sc_len$pass_2, specs = ~bot_temp)
-# len_temp_trends %>%
-#   mutate_if(is.numeric, ~round(.x, 3)) %>%
-#   group_by(survey_area) %>% 
-#   gt() %>% 
-#   tab_header(title = "Length Bottom Temp EMTrends")
+
 
 ```
 
@@ -770,7 +761,49 @@ ggplot(
       fill = "Finfish Community"
     )
 
+```
 
+
+
+
+```{r}
+
+# EMMEANS Controlling for Temp & Landings
+len_emmeans_2 <- map_dfr(
+  list(
+    "Data-Limited Community" = lc_len,
+    "Well-Studied Community" = sc_len
+    ),
+  function(x){
+    
+    region_posthoc <- emmeans(
+      object = pluck(x, "pass_2"), 
+      list(pairwise ~ survey_area), 
+      adjust = "tukey",
+      type = "response",
+      data = pluck(x, "model_data")) %>% 
+      pluck(1) %>% 
+      as.data.frame()
+  }, .id = "community"
+)
+
+
+
+# Plotting emmean
+ggplot(
+  len_emmeans_2,
+  aes(survey_area, emmean, ymin = lower.CL, ymax = upper.CL,  color = community)) +
+  geom_pointrange(
+    position = position_dodge(width = 0.5), 
+    alpha = 1) +
+  scale_color_manual(values = manual_colors) +
+  scale_x_discrete(guide = guide_axis(n.dodge = 2)) +
+  labs(
+    y = "Median Length (cm)",
+    x = NULL,
+    color = "Finfish Community",
+    title = "Estimated Marginal Means",
+    subtitle = "Controlling for Temperature and Landings")
 
 ```
 
@@ -831,6 +864,44 @@ ggplot(
 
 ```
 
+
+```{r}
+
+# Group Means
+wt_emmeans_2 <- map_dfr(
+  list(
+    "Well-Studied Community" = sc_wt
+  ),
+  function(x){
+    region_posthoc <- emmeans(
+      object = pluck(x, "pass_2"), 
+      list(pairwise ~ survey_area), 
+      adjust = "tukey",
+      type = "response",
+      data = pluck(x, "model_data")) %>% 
+      pluck(1) %>% 
+      as.data.frame()
+  }, .id = "community"
+)
+
+# Plotting emmean
+ggplot(
+  wt_emmeans_2,
+  aes(survey_area, response, ymin = lower.CL, ymax = upper.CL,  color = community)) +
+  geom_pointrange(
+    position = position_dodge(width = 0.5), 
+    alpha = 1) +
+   scale_color_manual(values = manual_colors) +
+  scale_x_discrete(guide = guide_axis(n.dodge = 2)) +
+  labs(
+    y = "Median Weight (kg)",
+    x = NULL,
+    color = "Finfish Community",
+    title = "Estimated Marginal Means",
+    subtitle = "Controlling for Temperature and Landings")
+```
+
+
 ### Length Spectra
 
 ```{r}
@@ -888,6 +959,53 @@ ggplot(
 
 ```
 
+
+```{r}
+# Group Means
+lenb_emmeans_2 <- bind_rows(
+  list(
+    "Data-Limited Community" = emmeans(
+      object = pluck(lc_lenb, "pass_2"), 
+      list(pairwise ~ survey_area), 
+      adjust = "tukey",
+      type = "response",
+      data = pluck(lc_lenb, "model_data")) %>%
+      pluck(1) %>% 
+      as.data.frame() %>% 
+      mutate(season = "No Seasonal Effect"),
+    
+    "Well-Studied Community" = emmeans(
+      object = pluck(sc_lenb, "pass_2"),
+      list(pairwise ~ survey_area), 
+      adjust = "tukey",
+      type = "response",
+      data = pluck(sc_lenb, "model_data")) %>% 
+      pluck(1) %>% 
+      as.data.frame())
+  , .id = "community"
+)
+
+
+# Plot
+ggplot(
+  lenb_emmeans_2,
+  aes(survey_area, emmean, ymin = lower.CL, ymax = upper.CL,  color = community)) +
+  geom_pointrange(
+    position = position_dodge(width = 0.5), 
+    alpha = 1) +
+  scale_color_manual(values = manual_colors) +
+  scale_x_discrete(guide = guide_axis(n.dodge = 2)) +
+  labs(
+    y = "Length Spectra Slope (b)",
+    x = NULL,
+    color = "Finfish Community",
+    title = "Estimated Marginal Means",
+    subtitle = "Controlling for Temperature and Landings")
+
+
+```
+
+
 ### Mass Spectra
 
 ```{r}
@@ -942,7 +1060,52 @@ ggplot(
 
 
 ```
+
+
+```{r}
+# Group Means
+wtb_emmeans_2 <- map_dfr(
+  list(
+    "Well-Studied Community" = sc_wtb
+  ),
+  function(x){
+    region_posthoc <- emmeans(
+      object = pluck(x, "pass_2"), 
+      list(pairwise ~ survey_area), 
+      adjust = "tukey",
+      type = "response",
+      data = pluck(x, "model_data"))
+    region_posthoc[[1]] %>% 
+      as.data.frame()
+  }, .id = "community"
+)
+
+
+
+# Plotting emmean
+ggplot(
+  wtb_emmeans_2,
+  aes(survey_area, emmean, ymin = lower.CL, ymax = upper.CL,  color = community)) +
+  geom_pointrange(
+    position = position_dodge(width = 0.5), 
+    alpha = 1) +
+   scale_color_manual(values = manual_colors) +
+  scale_x_discrete(guide = guide_axis(n.dodge = 2)) +
+  labs(
+    y = "Body Mass Spectra (b)",
+    x = NULL,
+    color = "Finfish Community",
+    title = "Estimated Marginal Means",
+    subtitle = "Controlling for Temperature and Landings")
+```
+
+
 :::
+
+# Lagging Landings
+
+The relationship between landings and
+
 
 # Comparative Performance
 
