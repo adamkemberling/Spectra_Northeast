@@ -81,11 +81,12 @@ lc_lenb <- read_rds(here::here("Data/models_and_results/lc_lenspectra.RDS"))
 The following tabs display the summary results from the linear model results from the first pass of analyses. These look at trends and mean differences in annual body size or size spectra among four regions of the Northeast US Continental Shelf.
 
 The acronyms (WS) & (DL) are references to which finfish community is being tested.     
- * **WS**: The "Well Studied" community refers to the 74 species with length-weight relationships published in Wigley et al.
- * **DL**: The "Data Limited"community refers to the broader finfish group that does not have published/reliable length-weight relationships.
+
+**WS**: The "Well Studied" community refers to the 74 species with length-weight relationships published in Wigley et al.
+
+**DL**: The "Data Limited"community refers to the broader finfish group that does not have published/reliable length-weight relationships.
  
- 
-Each table below displays the group level significance, as well as a predictor level significance from an F-Test is shown (uses car::Anova undr the hood).
+Each table below displays the group level significance, as well as a predictor level significance from an F-Test is shown (uses car::Anova under the hood).
 
 ```{r}
 pass1_mods <- list(
@@ -193,6 +194,7 @@ mod_1 <- sc_wtb$pass_1
 # Pass 1: Marginal Means
 
 ::: panel-tabset
+
 ### Median Length
 
 
@@ -216,6 +218,7 @@ len_emmeans <- map_dfr(
 
 
 
+
 # Plotting emmean
 ggplot(
   len_emmeans,
@@ -232,56 +235,40 @@ ggplot(
     title = "Estimated Marginal Means")
 
 
+# EMMean Table
 len_emmeans %>% 
   mutate_if(is.numeric, ~round(.x, 3)) %>%
-  group_by(survey_area) %>% 
+  group_by(community) %>% 
   gt() %>% 
   tab_header(title = "Median Length EMMeans") 
 
-```
 
-```{r}
-#| label: median length fig
 
-## Trends
-len_emtrends <- map_dfr(
+
+# Pairwise post-hoc
+len_emmean_phoc <- map_dfr(
   list(
     "Data-Limited Community" = lc_len,
-    "Well-Studied Community" = sc_len),
+    "Well-Studied Community" = sc_len
+    ),
   function(x){
-    region_posthoc <- emtrends(
-      object = pluck(x, "pass_1"), 
-      specs  =  ~ survey_area,
-      var    = "yr_num",
-      adjust = "bonf") %>% 
-    as_tibble()
+    region_posthoc <- emmeans(
+    pluck(x, "pass_1"),
+    list(pairwise ~ survey_area),
+    adjust = "tukey",
+    type = "response")
+  region_posthoc[[2]] %>%
+    as.data.frame()
   }, .id = "community"
 )
 
 
-# Plotting Slope 
-len_emtrends  %>% 
-    mutate(flag_alpha = ifelse(lower.CL > 0 | upper.CL <0, 1, 0.4)) %>% 
-    ggplot(aes(color = community, survey_area, yr_num.trend, ymin = lower.CL, ymax = upper.CL)) +
-    geom_hline(yintercept = 0, linetype = 2, color = "black") +
-    geom_pointrange(aes(alpha = I(flag_alpha)),
-                    position = position_dodge(width = 0.5)) +
-    scale_color_manual(values = manual_colors) +
-    scale_x_discrete(guide = guide_axis(n.dodge = 2)) +
-    labs(
-      title = "Estimated Marginal Means of Linear Trends",
-      x = "Region",
-      y = "beta",
-      color = "Finfish Community")
-
- 
-
-# Table
-len_emtrends %>%
+len_emmean_phoc %>% 
   mutate_if(is.numeric, ~round(.x, 3)) %>%
-  group_by(survey_area) %>% 
+  group_by(community) %>% 
   gt() %>% 
-  tab_header(title = "Median Length EMTrends")
+  tab_header(title = "Median Length Pairwise Post-Hoc") 
+
 ```
 
 
@@ -306,6 +293,9 @@ wt_emmeans <- map_dfr(
   }, .id = "community"
 )
 
+
+
+
 # Plotting emmean
 ggplot(
   wt_emmeans,
@@ -321,58 +311,40 @@ ggplot(
     color = "Finfish Community",
     title = "Estimated Marginal Means")
 
+
+
+# Table
 wt_emmeans %>% 
   mutate_if(is.numeric, ~round(.x, 3)) %>%
-  group_by(survey_area) %>% 
+  group_by(community) %>% 
   gt() %>% 
-  tab_header(title = "Median Length EMMeans") 
-
-```
+  tab_header(title = "Median Weight EMMeans") 
 
 
-```{r}
 
-
-# Group Means Trends
-wt_emtrends <- map_dfr(
+# Pairwise post-hoc
+wt_emmean_phoc <- map_dfr(
   list(
     "Well-Studied Community" = sc_wt
-  ),
+    ),
   function(x){
-    region_posthoc <- emtrends(
-      object = pluck(x, "pass_1"), 
-      specs  =  ~ survey_area,
-      var    = "yr_num",
-      adjust = "bonf") %>% 
-    as_tibble()
-  }, .id = "community"
-)
+    region_posthoc <- emmeans(
+    pluck(x, "pass_1"),
+    list(pairwise ~ survey_area),
+    adjust = "tukey",
+    type = "response")
+  region_posthoc[[2]] %>%
+    as.data.frame()
+  }, .id = "community") 
 
 
-# Plotting Slope 
-wt_emtrends  %>% 
-    mutate(flag_alpha = ifelse(lower.CL > 0 | upper.CL <0, 1, 0.4)) %>% 
-    ggplot(aes(color = community, survey_area, yr_num.trend, ymin = lower.CL, ymax = upper.CL)) +
-    geom_hline(yintercept = 0, linetype = 2, color = "black") +
-    geom_pointrange(aes(alpha = I(flag_alpha)),
-                    position = position_dodge(width = 0.5)) +
-     scale_color_manual(values = manual_colors) +
-    scale_x_discrete(guide = guide_axis(n.dodge = 2)) +
-    labs(
-      title = "Estimated Marginal Means of Linear Trends",
-      x = "Region",
-      y = "beta",
-      color = "Finfish Community")
-
- 
-# Table
-wt_emtrends %>%
+wt_emmean_phoc %>% 
   mutate_if(is.numeric, ~round(.x, 3)) %>%
-  group_by(survey_area) %>% 
+  group_by(community) %>% 
   gt() %>% 
-  tab_header(title = "Median Weight EMTrends")
-
+  tab_header(title = "Median Weight Pairwise Post-Hoc") 
 ```
+
 
 ### Length Spectra
 
@@ -384,7 +356,7 @@ This is the only pass 1 model where seasonal differences were significant (and a
 lenb_emmeans <- bind_rows(
   list(
     "Data-Limited Community" = emmeans(
-      lc_lenb$pass_1, 
+      pluck(lc_lenb, "pass_1"), 
       list(pairwise ~ survey_area), 
       adjust = "tukey",
       type = "response") %>%
@@ -393,7 +365,7 @@ lenb_emmeans <- bind_rows(
       mutate(season = "No Seasonal Effect"),
     
     "Well-Studied Community" = emmeans(
-      sc_lenb$pass_1,
+      pluck(sc_lenb, "pass_1"),
       list(pairwise ~ survey_area + season), 
       adjust = "tukey",
       type = "response") %>% 
@@ -425,77 +397,42 @@ ggplot(
 # Table
 lenb_emmeans %>% 
   mutate_if(is.numeric, ~round(.x, 3)) %>%
-  group_by(survey_area) %>% 
+  group_by(community) %>% 
   gt() %>% 
   tab_header(title = "Length Spectra EMMeans")
-```
 
 
-```{r}
-## Trends
 
-# # Group Means - treated the same
-# lenb_emtrends <- map_dfr(
-#   list(
-#     "Data-Limited Community" = lc_lenb,
-#     "Well-Studied Community" = sc_lenb
-#   ),
-#   function(x){
-#     region_posthoc <- emtrends(
-#       object = pluck(x, "pass_1"), 
-#       specs  =  ~ survey_area + season,
-#       var    = "yr_num",
-#       adjust = "bonf")
-#     region_posthoc %>% 
-#     as_tibble()
-#   }, .id = "community"
-# )
-
-lenb_emtrends <- bind_rows(
+# Pairwise post-hoc
+lenb_emmean_phoc <- bind_rows(
   list(
-    "Data-Limited Community" = emtrends(
+    "Data-Limited Community" = emmeans(
       pluck(lc_lenb, "pass_1"), 
-      specs  =  ~ survey_area,
-      var    = "yr_num",
-      adjust = "bonf") %>%
-      as_tibble() %>% 
-      mutate(season = "No Seasonal Effect"),
+      list(pairwise ~ survey_area), 
+      adjust = "tukey",
+      type = "response") %>%
+      pluck(2) %>% 
+      as.data.frame(),
     
-    "Well-Studied Community" = emtrends(
+    "Well-Studied Community" = emmeans(
       pluck(sc_lenb, "pass_1"),
-      specs  =  ~ survey_area + season,
-      var    = "yr_num",
-      adjust = "bonf") %>%
-      as_tibble())
+      list(pairwise ~ survey_area + season), 
+      adjust = "tukey",
+      type = "response") %>% 
+      pluck(2) %>% 
+      as.data.frame())
   , .id = "community"
-)
+) %>% 
+  mutate_if(is.numeric, ~round(.x, 3))
 
 
-
-# Plotting Slope 
-lenb_emtrends  %>% 
-    mutate(flag_alpha = ifelse(lower.CL > 0 | upper.CL <0, 1, 0.4)) %>% 
-    ggplot(aes(color = season, survey_area, yr_num.trend, ymin = lower.CL, ymax = upper.CL)) +
-    geom_hline(yintercept = 0, linetype = 2, color = "black") +
-    geom_pointrange(aes(alpha = I(flag_alpha)),
-                    position = position_dodge(width = 0.5)) +
-    scale_color_gmri(reverse = T) +
-    facet_wrap(~community, ncol = 1) +
-    scale_x_discrete(guide = guide_axis(n.dodge = 2)) +
-    labs(
-      title = "Estimated Marginal Means of Linear Trends",
-      x = "Region",
-      y = "beta",
-      color = "Finfish Community")
-
-
-# Table
-lenb_emtrends %>%
-  mutate_if(is.numeric, ~round(.x, 3)) %>%
-  group_by(survey_area) %>% 
+lenb_emmean_phoc %>% 
+  group_by(community) %>% 
   gt() %>% 
-  tab_header(title = "Length Spectra EMTrends")
+  tab_header(title = "Length Spectra Pairwise Post-Hoc") 
+
 ```
+
 
 
 ### Mass Spectra
@@ -538,12 +475,197 @@ ggplot(
 
 
 # Table
-lenb_emmeans %>% 
+wtb_emmeans %>% 
   mutate_if(is.numeric, ~round(.x, 3)) %>%
-  group_by(survey_area) %>% 
+  group_by(community) %>% 
   gt() %>% 
-  tab_header(title = "Length Spectra EMMeans")
+  tab_header(title = "Mass Spectra EMMeans")
+
+
+
+
+# Group Means
+wtb_emmean_phoc <- map_dfr(
+  list(
+    "Well-Studied Community" = sc_wtb),
+  function(x){
+    region_posthoc <- emmeans(
+      pluck(x, "pass_1"),
+      list(pairwise ~ survey_area), 
+      adjust = "tukey",
+      type = "response") %>% 
+      pluck(2) %>% 
+      as.data.frame()
+  }, .id = "community") %>% 
+  mutate_if(is.numeric, ~round(.x, 3))
+
+
+wtb_emmean_phoc %>% 
+  group_by(community) %>% 
+  gt() %>% 
+  tab_header(title = "Mass Spectra Pairwise Post-Hoc") 
 ```
+
+
+
+:::
+
+# Pass 1: Marginal Mean Trends
+
+
+::: panel-tabset
+
+
+### Median Length
+
+
+```{r}
+#| label: median length fig
+
+## Trends
+len_emtrends <- map_dfr(
+  list(
+    "Data-Limited Community" = lc_len,
+    "Well-Studied Community" = sc_len),
+  function(x){
+    region_posthoc <- emtrends(
+      object = pluck(x, "pass_1"), 
+      specs  =  ~ survey_area,
+      var    = "yr_num",
+      adjust = "bonf") %>% 
+    as_tibble()
+  }, .id = "community"
+)
+
+
+# Plotting Slope 
+len_emtrends  %>% 
+    mutate(flag_alpha = ifelse(lower.CL > 0 | upper.CL <0, 1, 0.4)) %>% 
+    ggplot(aes(color = community, survey_area, yr_num.trend, ymin = lower.CL, ymax = upper.CL)) +
+    geom_hline(yintercept = 0, linetype = 2, color = "black") +
+    geom_pointrange(aes(alpha = I(flag_alpha)),
+                    position = position_dodge(width = 0.5)) +
+    scale_color_manual(values = manual_colors) +
+    scale_x_discrete(guide = guide_axis(n.dodge = 2)) +
+    labs(
+      title = "Estimated Marginal Means of Linear Trends",
+      x = "Region",
+      y = "beta",
+      color = "Finfish Community")
+
+ 
+
+# Table
+len_emtrends %>%
+  mutate_if(is.numeric, ~round(.x, 3)) %>%
+  group_by(community) %>% 
+  gt() %>% 
+  tab_header(title = "Median Length EMTrends")
+```
+
+
+### Median Weight
+
+
+```{r}
+
+
+# Group Means Trends
+wt_emtrends <- map_dfr(
+  list(
+    "Well-Studied Community" = sc_wt
+  ),
+  function(x){
+    region_posthoc <- emtrends(
+      object = pluck(x, "pass_1"), 
+      specs  =  ~ survey_area,
+      var    = "yr_num",
+      adjust = "bonf") %>% 
+    as_tibble()
+  }, .id = "community"
+)
+
+
+# Plotting Slope 
+wt_emtrends  %>% 
+    mutate(flag_alpha = ifelse(lower.CL > 0 | upper.CL <0, 1, 0.4)) %>% 
+    ggplot(aes(color = community, survey_area, yr_num.trend, ymin = lower.CL, ymax = upper.CL)) +
+    geom_hline(yintercept = 0, linetype = 2, color = "black") +
+    geom_pointrange(aes(alpha = I(flag_alpha)),
+                    position = position_dodge(width = 0.5)) +
+     scale_color_manual(values = manual_colors) +
+    scale_x_discrete(guide = guide_axis(n.dodge = 2)) +
+    labs(
+      title = "Estimated Marginal Means of Linear Trends",
+      x = "Region",
+      y = "beta",
+      color = "Finfish Community")
+
+ 
+# Table
+wt_emtrends %>%
+  mutate_if(is.numeric, ~round(.x, 3)) %>%
+  group_by(community) %>% 
+  gt() %>% 
+  tab_header(title = "Median Weight EMTrends")
+
+```
+
+### Length Spectra
+
+This is the only pass 1 model where seasonal differences were significant (and also only for the well-studied community).
+
+
+```{r}
+## Trends
+lenb_emtrends <- bind_rows(
+  list(
+    "Data-Limited Community" = emtrends(
+      pluck(lc_lenb, "pass_1"), 
+      specs  =  ~ survey_area,
+      var    = "yr_num",
+      adjust = "bonf") %>%
+      as_tibble() %>% 
+      mutate(season = "No Seasonal Effect"),
+    
+    "Well-Studied Community" = emtrends(
+      pluck(sc_lenb, "pass_1"),
+      specs  =  ~ survey_area + season,
+      var    = "yr_num",
+      adjust = "bonf") %>%
+      as_tibble())
+  , .id = "community"
+)
+
+
+
+# Plotting Slope 
+lenb_emtrends  %>% 
+    mutate(flag_alpha = ifelse(lower.CL > 0 | upper.CL <0, 1, 0.4)) %>% 
+    ggplot(aes(color = season, survey_area, yr_num.trend, ymin = lower.CL, ymax = upper.CL)) +
+    geom_hline(yintercept = 0, linetype = 2, color = "black") +
+    geom_pointrange(aes(alpha = I(flag_alpha)),
+                    position = position_dodge(width = 0.5)) +
+    scale_color_gmri(reverse = T) +
+    facet_wrap(~community, ncol = 1) +
+    scale_x_discrete(guide = guide_axis(n.dodge = 2)) +
+    labs(
+      title = "Estimated Marginal Means of Linear Trends",
+      x = "Region",
+      y = "beta",
+      color = "Finfish Community")
+
+
+# Table
+lenb_emtrends %>%
+  mutate_if(is.numeric, ~round(.x, 3)) %>%
+  group_by(community) %>% 
+  gt() %>% 
+  tab_header(title = "Length Spectra EMTrends")
+```
+
+
+### Mass Spectra
 
 
 ```{r}
@@ -589,10 +711,11 @@ wtb_emtrends  %>%
 # Table
 wtb_emtrends %>%
   mutate_if(is.numeric, ~round(.x, 3)) %>%
-  group_by(survey_area) %>% 
+  group_by(community) %>% 
   gt() %>% 
   tab_header(title = "Mass Spectra EMTrends")
 ```
+
 
 
 
