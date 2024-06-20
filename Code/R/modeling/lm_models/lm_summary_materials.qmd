@@ -10,7 +10,7 @@ execute:
   message: false
   comment: ""
   fig-align: center
-  fig-height: 6
+  fig-height: 4
 ---
 
 # About
