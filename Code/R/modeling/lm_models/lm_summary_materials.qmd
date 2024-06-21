@@ -664,7 +664,7 @@ bt_emtrends <- emtrends(
 
 # Plotting Slope 
 bt_emtrends  %>% 
-    mutate(flag_alpha = ifelse(lower.CL > 0 | upper.CL <0, 1, 0.)) %>% 
+    mutate(flag_alpha = ifelse(lower.CL > 0 | upper.CL <0, 1, 0.4)) %>% 
     ggplot(aes(color = season, survey_area, yr_num.trend, ymin = lower.CL, ymax = upper.CL)) +
     geom_pointrange(size = 1,aes(alpha = I(flag_alpha)),
                     position = position_dodge(width = 0.5)) +
