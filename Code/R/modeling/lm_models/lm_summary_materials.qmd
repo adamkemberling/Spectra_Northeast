@@ -39,9 +39,13 @@ library(gt)
 theme_set(theme_gmri(rect = element_rect(fill = "white", color = NA), legend.position = "bottom"))
 
 manual_colors <- c(
-  "Well-Studied Community" = gmri_cols("blue"),
-  "Data-Limited Community" = gmri_cols("orange")
+  "Well-Studied Community" = "#00608A",
+  "Data-Limited Community" = "#EA4F12",
+  "Spring"                 = "#00736D",
+  "Fall"                   = "#EACA00",
+  "No Seasonal Effect"     = "#535353"
 )
+     
 ```
 
 # Source Modeling Sripts
@@ -74,7 +78,51 @@ sc_lenb <- read_rds(here::here("Data/models_and_results/sc_lenspectra.RDS"))
 sc_wtb <- read_rds(here::here("Data/models_and_results/sc_bmspectra.RDS"))
 lc_len <- read_rds(here::here("Data/models_and_results/lc_medlen.RDS"))
 lc_lenb <- read_rds(here::here("Data/models_and_results/lc_lenspectra.RDS"))
+
+
+
+pass1_mods <- list(
+  "Well-Studied_Median Weight"    = sc_wt,
+  "Well-Studied_Median Length"    = sc_len,
+  "Well-Studied_Length Spectra"   = sc_lenb,
+  "Well-Studied_Bodymass Spectra" = sc_wtb,
+  "Data-Limited_Median Length"    = lc_len,
+  "Data-Limited_Length Spectra"   = lc_lenb)
+
 ```
+
+# Pass 1 Fit
+
+```{r}
+p1_preds <- map_df(
+  pass1_mods,
+  function(x){
+    dat <- pluck(x, "model_data")
+    mod <- pluck(x, "pass_1")
+    dat <- broom::augment(mod, newdata = dat, interval = "confidence") %>% 
+    # Can we rename the right dependent var?  
+    mutate(actual = .fitted + .resid)
+    return(dat)
+  },
+  .id = "model_name"
+)
+
+
+# # Too much to look at, but generally works
+# p1_preds %>% 
+#   separate(model_name, into = c("community", "metric"), sep = "_") %>% 
+#   mutate(group_id = str_c(community, "-", season)) %>% 
+#   filter(!str_detect(metric, "Spectra")) %>% 
+#   ggplot() +
+#   geom_point(aes(yr_num, actual, color = community), alpha = 0.3, size = 0.8) +
+#   geom_ribbon(aes(yr_num, ymin = .lower, ymax = .upper, group = group_id), alpha = 0.2) +
+#   geom_line(aes(yr_num, .fitted, color = community, group = group_id)) +
+#   facet_grid(metric ~ survey_area, scales = "free")
+
+
+```
+
+
 
 # Pass 1: Model Summary Tables
 
@@ -88,21 +136,29 @@ The acronyms (WS) & (DL) are references to which finfish community is being test
  
 Each table below displays the group level significance, as well as a predictor level significance from an F-Test is shown (uses car::Anova under the hood).
 
+::: panel-tabset
+
+### Bottom Temperature
+
 ```{r}
-pass1_mods <- list(
-  "Well-Studied_Median Weight"    = sc_wt$pass_1,
-  "Well-Studied_Median Length"    = sc_len$pass_1,
-  "Well-Studied_Length Spectra"   = sc_lenb$pass_1,
-  "Well-Studied_Bodymass Spectra" = sc_wtb$pass_1,
-  "Data-Limited_Median Length"    = lc_len$pass_1,
-  "Data-Limited_Length Spectra"   = lc_lenb$pass_1)
 
 
+### Are bottom Temperatures Different Seasonally
+# Degree symbol
+deg_c <- "\u00b0C"
+
+
+# Are bottom temperatures different seasonally
+btemp_lm <- lm(bot_temp ~ survey_area * season * yr_num, data = lc_len$model_data)
+tbl_regression(btemp_lm)
 
 
 ```
 
-::: panel-tabset
+
+
+
+
 ### Median Length (WS)
 
 ```{r}
@@ -195,6 +251,80 @@ mod_1 <- sc_wtb$pass_1
 
 ::: panel-tabset
 
+
+### Bottom Temperature
+
+```{r}
+# Regional marginal Means
+btemp_emmean_r <- emmeans(
+      btemp_lm,
+      list(pairwise ~ survey_area), 
+      adjust = "tukey",
+      type = "response") %>% 
+      pluck(1) %>% 
+      as.data.frame() %>% 
+  mutate_if(is.numeric, ~round(.x, 3))
+
+
+# Reg * Seas marginal Means
+btemp_emmean <- emmeans(
+      btemp_lm,
+      list(pairwise ~ survey_area + season), 
+      adjust = "tukey",
+      type = "response") %>% 
+      pluck(1) %>% 
+      as.data.frame() 
+
+
+
+# Plot emmeans
+ggplot(btemp_emmean, aes(survey_area, emmean, color = season)) +
+  geom_pointrange(size = 1,aes(ymin = lower.CL, ymax = upper.CL),
+                  position = position_dodge(width = 0.25)) +
+  scale_color_manual(values = manual_colors) +
+  scale_y_continuous(labels = label_number(suffix = deg_c)) +
+  labs(y = "Marginal Mean Bottom Temperature",
+       x = "Region",
+       color = "Season",
+       title = "Estimated Marginal Means")
+
+
+# EMMean Table
+btemp_emmean_r %>% 
+  mutate_if(is.numeric, ~round(.x, 3)) %>%
+  gt() %>% 
+  tab_header(title = "Bottom Temperature EMMeans") 
+
+# # Seasonal Differences - for in-text
+# btemp_emmean %>% 
+#   dplyr::select(-c(4:7)) %>% 
+#   pivot_wider(names_from = "season", values_from = "emmean") %>% 
+#   mutate(seas_diff = Fall - Spring)
+
+
+
+# Pairwise post-hoc
+btemp_emmean_phoc <- emmeans(
+      btemp_lm,
+      list(pairwise ~ survey_area + season), 
+      adjust = "tukey",
+      type = "response") %>% 
+      pluck(2) %>% 
+      as.data.frame() %>% 
+  mutate_if(is.numeric, ~round(.x, 3))
+
+
+
+
+btemp_emmean_phoc %>% 
+  mutate_if(is.numeric, ~round(.x, 3)) %>%
+  gt() %>% 
+  tab_header(title = "Bottom Temperature Pairwise Post-Hoc") 
+
+```
+
+
+
 ### Median Length
 
 
@@ -223,7 +353,7 @@ len_emmeans <- map_dfr(
 ggplot(
   len_emmeans,
   aes(survey_area, emmean, ymin = lower.CL, ymax = upper.CL,  color = community)) +
-  geom_pointrange(
+  geom_pointrange(size = 1,
     position = position_dodge(width = 0.5), 
     alpha = 1) +
   scale_color_manual(values = manual_colors) +
@@ -300,7 +430,7 @@ wt_emmeans <- map_dfr(
 ggplot(
   wt_emmeans,
   aes(survey_area, response, ymin = lower.CL, ymax = upper.CL,  color = community)) +
-  geom_pointrange(
+  geom_pointrange(size = 1,
     position = position_dodge(width = 0.5), 
     alpha = 1) +
    scale_color_manual(values = manual_colors) +
@@ -352,6 +482,9 @@ This is the only pass 1 model where seasonal differences were significant (and a
 
 ```{r}
 #| label: length spectra emmeans
+#| fig-height: 6
+
+
 # Group Means
 lenb_emmeans <- bind_rows(
   list(
@@ -379,11 +512,10 @@ lenb_emmeans <- bind_rows(
 ggplot(
   lenb_emmeans,
   aes(survey_area, emmean, ymin = lower.CL, ymax = upper.CL,  color = season)) +
-  geom_pointrange(
+  geom_pointrange(size = 1,
     position = position_dodge(width = 0.5), 
     alpha = 1) +
   scale_color_manual(values = manual_colors) +
-  scale_color_gmri(reverse = T) +
   scale_x_discrete(guide = guide_axis(n.dodge = 2)) +
   facet_wrap(~community, ncol = 1) +
   labs(
@@ -461,7 +593,7 @@ wtb_emmeans <- map_dfr(
 ggplot(
   wtb_emmeans,
   aes(survey_area, emmean, ymin = lower.CL, ymax = upper.CL,  color = community)) +
-  geom_pointrange(
+  geom_pointrange(size = 1,
     position = position_dodge(width = 0.5), 
     alpha = 1) +
    scale_color_manual(values = manual_colors) +
@@ -515,6 +647,46 @@ wtb_emmean_phoc %>%
 
 ::: panel-tabset
 
+### Bottom Temperature
+
+
+```{r}
+#| label: bottom temp fig
+
+## Trends
+bt_emtrends <- emtrends(
+      object = btemp_lm, 
+      specs  =  ~ survey_area + season,
+      var    = "yr_num",
+      adjust = "bonf") %>% 
+    as_tibble()
+
+
+# Plotting Slope 
+bt_emtrends  %>% 
+    mutate(flag_alpha = ifelse(lower.CL > 0 | upper.CL <0, 1, 0.)) %>% 
+    ggplot(aes(color = season, survey_area, yr_num.trend, ymin = lower.CL, ymax = upper.CL)) +
+    geom_pointrange(size = 1,aes(alpha = I(flag_alpha)),
+                    position = position_dodge(width = 0.5)) +
+    geom_hline(yintercept = 0, linetype = 2, color = "black") +
+    scale_color_manual(values = manual_colors) +
+    scale_x_discrete(guide = guide_axis(n.dodge = 2)) +
+    labs(
+      title = "Estimated Marginal Means of Linear Trends",
+      x = "Region",
+      y = "beta",
+      color = "Finfish Community")
+
+ 
+
+# Table
+bt_emtrends %>%
+  mutate_if(is.numeric, ~round(.x, 3)) %>%
+  gt() %>% 
+  tab_header(title = "Bottom Temperature EMTrends")
+```
+
+
 
 ### Median Length
 
@@ -542,9 +714,9 @@ len_emtrends <- map_dfr(
 len_emtrends  %>% 
     mutate(flag_alpha = ifelse(lower.CL > 0 | upper.CL <0, 1, 0.4)) %>% 
     ggplot(aes(color = community, survey_area, yr_num.trend, ymin = lower.CL, ymax = upper.CL)) +
-    geom_hline(yintercept = 0, linetype = 2, color = "black") +
-    geom_pointrange(aes(alpha = I(flag_alpha)),
+    geom_pointrange(size = 1,aes(alpha = I(flag_alpha)),
                     position = position_dodge(width = 0.5)) +
+    geom_hline(yintercept = 0, linetype = 2, color = "black") +
     scale_color_manual(values = manual_colors) +
     scale_x_discrete(guide = guide_axis(n.dodge = 2)) +
     labs(
@@ -590,10 +762,10 @@ wt_emtrends <- map_dfr(
 wt_emtrends  %>% 
     mutate(flag_alpha = ifelse(lower.CL > 0 | upper.CL <0, 1, 0.4)) %>% 
     ggplot(aes(color = community, survey_area, yr_num.trend, ymin = lower.CL, ymax = upper.CL)) +
-    geom_hline(yintercept = 0, linetype = 2, color = "black") +
-    geom_pointrange(aes(alpha = I(flag_alpha)),
+    geom_pointrange(size = 1,aes(alpha = I(flag_alpha)),
                     position = position_dodge(width = 0.5)) +
-     scale_color_manual(values = manual_colors) +
+    scale_color_manual(values = manual_colors) +
+    geom_hline(yintercept = 0, linetype = 2, color = "black") +
     scale_x_discrete(guide = guide_axis(n.dodge = 2)) +
     labs(
       title = "Estimated Marginal Means of Linear Trends",
@@ -617,6 +789,8 @@ This is the only pass 1 model where seasonal differences were significant (and a
 
 
 ```{r}
+#| fig-height: 6
+
 ## Trends
 lenb_emtrends <- bind_rows(
   list(
@@ -643,10 +817,10 @@ lenb_emtrends <- bind_rows(
 lenb_emtrends  %>% 
     mutate(flag_alpha = ifelse(lower.CL > 0 | upper.CL <0, 1, 0.4)) %>% 
     ggplot(aes(color = season, survey_area, yr_num.trend, ymin = lower.CL, ymax = upper.CL)) +
-    geom_hline(yintercept = 0, linetype = 2, color = "black") +
-    geom_pointrange(aes(alpha = I(flag_alpha)),
+    geom_pointrange(size = 1,aes(alpha = I(flag_alpha)),
                     position = position_dodge(width = 0.5)) +
-    scale_color_gmri(reverse = T) +
+    geom_hline(yintercept = 0, linetype = 2, color = "black") +
+    scale_color_manual(values = manual_colors) +
     facet_wrap(~community, ncol = 1) +
     scale_x_discrete(guide = guide_axis(n.dodge = 2)) +
     labs(
@@ -694,9 +868,9 @@ wtb_emtrends <- map_dfr(
 wtb_emtrends  %>% 
     mutate(flag_alpha = ifelse(lower.CL > 0 | upper.CL <0, 1, 0.4)) %>% 
     ggplot(aes(color = community, survey_area, yr_num.trend, ymin = lower.CL, ymax = upper.CL)) +
-    geom_hline(yintercept = 0, linetype = 2, color = "black") +
-    geom_pointrange(aes(alpha = I(flag_alpha)),
+    geom_pointrange(size = 1,aes(alpha = I(flag_alpha)),
                     position = position_dodge(width = 0.5)) +
+    geom_hline(yintercept = 0, linetype = 2, color = "black") +
      scale_color_manual(values = manual_colors) +
     scale_x_discrete(guide = guide_axis(n.dodge = 2)) +
     labs(
@@ -916,7 +1090,7 @@ len_emmeans_2 <- map_dfr(
 ggplot(
   len_emmeans_2,
   aes(survey_area, emmean, ymin = lower.CL, ymax = upper.CL,  color = community)) +
-  geom_pointrange(
+  geom_pointrange(size = 1,
     position = position_dodge(width = 0.5), 
     alpha = 1) +
   scale_color_manual(values = manual_colors) +
@@ -1011,7 +1185,7 @@ wt_emmeans_2 <- map_dfr(
 ggplot(
   wt_emmeans_2,
   aes(survey_area, response, ymin = lower.CL, ymax = upper.CL,  color = community)) +
-  geom_pointrange(
+  geom_pointrange(size = 1,
     position = position_dodge(width = 0.5), 
     alpha = 1) +
    scale_color_manual(values = manual_colors) +
@@ -1113,7 +1287,7 @@ lenb_emmeans_2 <- bind_rows(
 ggplot(
   lenb_emmeans_2,
   aes(survey_area, emmean, ymin = lower.CL, ymax = upper.CL,  color = community)) +
-  geom_pointrange(
+  geom_pointrange(size = 1,
     position = position_dodge(width = 0.5), 
     alpha = 1) +
   scale_color_manual(values = manual_colors) +
@@ -1209,7 +1383,7 @@ wtb_emmeans_2 <- map_dfr(
 ggplot(
   wtb_emmeans_2,
   aes(survey_area, emmean, ymin = lower.CL, ymax = upper.CL,  color = community)) +
-  geom_pointrange(
+  geom_pointrange(size = 1,
     position = position_dodge(width = 0.5), 
     alpha = 1) +
    scale_color_manual(values = manual_colors) +
@@ -1225,9 +1399,14 @@ ggplot(
 
 :::
 
-# Lagging Landings
 
-The relationship between landings and
+
+# Comparing Deviance Explained
+
+```{r}
+
+```
+
 
 
 # Comparative Performance
