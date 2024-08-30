@@ -1,0 +1,332 @@
+---
+title: "Exploring Seasonal Community Differences"
+format: 
+  html:
+    self-contained: true
+---
+
+
+```{r}
+library(tidyverse)
+library(gmRi)
+library(rcartocolor)
+
+# 
+theme_set(
+  theme_gmri(
+    rect = element_rect(fill = "white", color = NA), 
+    strip.text.y = element_text(angle  = 0)))
+
+
+```
+
+
+# Seasonal Differences in Size Spectra
+
+In plotting seasonal spectra exponents it was apparent that in the three southern areas there were large differences in size spectra between the spring and fall. 
+
+This doc is a quick exploration into what might be happening there in terms of community changes or recruitment.
+
+### Size Structure Trends
+
+One thing worth looking at is the abundance of different size classes.
+
+If we break the size distribution into bins we can see how relative abundances have fluctuated.
+
+My interests here are to assess whether seasonal "steepening" is a result of bottom-up abundance gains in smaller size classes, or top-down loss/absence of larger individuals.
+
+```{r}
+#| label: load wigley species data
+wigley_in <- read_csv(here::here("Data/processed/wigley_species_trawl_data.csv"))
+```
+
+
+```{r}
+#| label: Assign log bins
+
+
+#' @title Build Log 10 Bin Structure Dataframe
+#' 
+#' @description Used to build a dataframe containing equally spaced log10 bins for
+#' size spectra analysis. Contains details on the left and right limits, midpoint, bin width, 
+#' and a text label for the bins. l10bin number ascends with increasing size for eeasy plotting.
+#'
+#' @param l10_min 
+#' @param l10_max 
+#' @param l10_increment 
+#'
+#' @return
+#' @export
+#'
+#' @examples
+define_l10_bins <- function(l10_min = 0, l10_max = 4.5, l10_increment = 0.5){
+  
+  # How many bins
+  n_bins  <- length(seq(l10_max, l10_min + l10_increment, by = -l10_increment))
+  
+  # Build Equally spaced log10 bin df
+  l10_bin_structure <- data.frame(
+    "log10_bins" = as.character(seq(n_bins, 1, by = -1)),
+    "left_lim"  = seq(l10_max - l10_increment, l10_min, by = -l10_increment),
+    "right_lim" = seq(l10_max, l10_min + l10_increment, by = -l10_increment)) %>% 
+    mutate(
+      bin_label    = str_c(round(10^left_lim, 3), " - ", round(10^right_lim, 3), "g"),
+      bin_width    = 10^right_lim - 10^left_lim,
+      bin_midpoint = (10^right_lim + 10^left_lim) / 2) %>% 
+    arrange(log10_bins)
+  
+  return(l10_bin_structure)
+}
+
+```
+
+
+```{r}
+#' @title Assign Manual log10 Bodymass Bins
+#'
+#' @description Manually assign log10 bins based on individual length-weight bodymass 
+#' in increments of 0.5 on the log10 scale. Returns data with bins assigned based on individual
+#' length-weight biomass
+#' 
+#' Uses maximum weight, and its corresponding bin as the limit.
+#'
+#' @param lengthclass_abundance_df Abundance by length/weight data prepared for size spectra slopeestimation
+#' @param l10_increment Equally spaced increments to use for log 10 bin sizes. Default = 0.5.
+#'
+#' @return
+#' @export
+#'
+#' @examples
+assign_log10_bins <- function(lengthclass_abundance_df, l10_increment = 1){
+  
+  
+  #### 1. Set up bodymass bins
+  
+  # filter missing weights
+  size_data <- lengthclass_abundance_df %>% 
+    filter(wmin_g > 0,
+           is.na(wmin_g) == FALSE,
+           wmax_g > 0,
+           is.na(wmax_g) == FALSE)
+
+  # Get bodymass on log10() scale
+  size_data$log10_weight <- log10(size_data$ind_weight_g)
+  
+  # Set up the bins - Pull min and max weights from data available
+  min_bin <- floor(min(size_data$log10_weight))
+  max_bin <- ceiling(max(size_data$log10_weight))
+  
+  
+  # Build a bin key, could be used to clean up the incremental assignment or for apply style functions
+  l10_bin_structure <- define_l10_bins(
+    l10_min = min_bin, 
+    l10_max = max_bin, 
+    l10_increment = l10_increment)
+  
+  
+  
+  # Loop through bins to assign the bin details to the data
+  l10_assigned <- l10_bin_structure %>%
+    split(.$log10_bins) %>%
+    map_dfr(function(l10_bin){
+      
+      # limits and labels
+      l_lim   <- l10_bin$left_lim
+      r_lim   <- l10_bin$right_lim
+      bin_num <- as.character(l10_bin$log10_bin)
+      
+      # assign the label to the appropriate bodymasses
+      size_data %>% mutate(
+        log10_bins = ifelse( between(log10_weight, l_lim, r_lim), bin_num, NA),
+        log10_bins = as.character(log10_bins)) %>%
+        drop_na(log10_bins)
+      
+    })
+  
+  # Join in the size bins
+  l10_assigned <- left_join(l10_assigned, l10_bin_structure, by = "log10_bins")
+  
+  # return the data with the bins assigned
+  return(l10_assigned)
+  
+}
+```
+
+
+```{r}
+#| label: perform assignment
+
+wigley_l10 <- assign_log10_bins(wigley_in, l10_increment = 1)
+
+
+
+```
+
+
+```{r}
+#| label: aggregating log10 bins
+
+#' @title Calculate Normalized and De-Normalized Abundances
+#'
+#' @description For normalized size spectra estimation we use abundance divided by the bin widths. 
+#' 
+#' Another option is to de-normalize, which takes those values and multiplies them by the mid-point of the log-scale bins.
+#' 
+#' min/max & bin_increments are used to enforce the presence of a size bin in the event that 
+#' there is no abundance. This is done for comparing across different groups/areas that should 
+#' conceivably have the same size range sampled.
+#'
+#' @param l10_assigned size data containing the bin assignments to use
+#' @param min_l10_bin Minimum 10^x value for the size spectra being measured (>=)
+#' @param max_l10_bin Maximum 10^x value for the size spectra being measured (<)
+#' @param bin_increment The bin-width on log scale that separates each bin
+#' @param ... Additional grouping factors with which to aggregate on besides the size bins themselves
+#'
+#' @return
+#' @export
+#'
+#' @examples
+aggregate_l10_bins <- function(
+    l10_assigned, 
+    min_l10_bin = 0, 
+    max_l10_bin = 4.5, 
+    bin_increment = 0.5,
+    ...){
+  
+  # Full Possible Bin Structure
+  # Fills in any gaps
+  l10_bin_structure <- define_l10_bins(
+    l10_min = min_l10_bin, 
+    l10_max = max_l10_bin, 
+    l10_increment = bin_increment)
+  
+  
+  # Capture all the group levels with a cheeky expand()
+  if(missing(...) == FALSE){
+    l10_bin_structure <- l10_bin_structure %>% 
+      expand(left_lim, distinct(l10_assigned, ...)) %>% 
+      full_join(l10_bin_structure)
+  }
+  
+  
+  
+  # Get bin breaks
+  l10_breaks <- sort(unique(c(l10_bin_structure$left_lim, l10_bin_structure$right_lim)))
+  
+  
+  # Get Totals for bodymass and abundances
+  l10_aggregates <- l10_assigned %>% 
+    group_by(left_lim, ...) %>% 
+    summarise(abundance   = sum(numlen_adj, na.rm = T),
+              weight_g    = sum(wmin_g, na.rm = T),
+              .groups = "drop")
+  
+  
+  # Join back in what the limits and labels are
+  # The defined bins and their labels enforce the size limits
+  l10_prepped <- left_join(
+    x = l10_bin_structure, 
+    y = l10_aggregates)
+  
+  
+  #### Fill Gaps with Zero's??
+  # This ensures that any size bin that is intended to be in use is actually used
+  l10_prepped <- l10_prepped %>% 
+    mutate(
+      abundance = ifelse(
+        is.na(abundance), 1, abundance),
+      weight_g = ifelse(
+        is.na(weight_g), 1, weight_g))
+  
+  
+  #### normalize abundances using the bin widths
+  l10_prepped <- l10_prepped %>% 
+    mutate(
+      normalized_abund = abundance / bin_width)
+  
+  # Add de-normalized abundances (abundance * bin midpoint)
+  l10_prepped <- l10_prepped %>% 
+    mutate(denorm_abund = normalized_abund * bin_midpoint)
+  
+  # Return the aggregations
+  return(l10_prepped)
+  
+}
+```
+
+
+```{r}
+# Aggregate on year, area, season
+wigley_seasonal_aggs <- wigley_l10 %>% 
+  mutate(group_var = str_c(est_year, "XX", survey_area, "XX", season)) %>% 
+  split(.$group_var) %>% 
+  map_dfr(
+    .f = ~aggregate_l10_bins(.x, min_l10_bin = 0, max_l10_bin = 4, bin_increment = 1), 
+  .id = "group_var") %>% 
+  separate(group_var, into = c("est_year", "survey_area", "season"), sep = "XX") %>% 
+  mutate(est_year = as.numeric(est_year),
+         survey_area = factor(survey_area, levels = c("GoM", "GB", "SNE", "MAB")))
+
+
+# Plot the actual
+wigley_seasonal_aggs %>% 
+  filter(#survey_area == "SNE",
+         left_lim <= 5) %>% 
+  split(.$bin_label) %>% 
+  map(
+    ~ggplot(.x) +
+  geom_tile(aes(est_year, season, fill = normalized_abund)) +
+  scale_fill_carto_c(palette = "SunsetDark") +
+  facet_grid(survey_area ~ bin_label, scales = "free") +
+  labs(x = "Year"))
+  
+  
+# Plot the Change
+wigley_seasonal_aggs %>% 
+  pivot_wider(id_cols = c(est_year, survey_area, bin_label), values_from = normalized_abund, names_from = season) %>% 
+  mutate(fall_delta = Spring - Fall) %>% 
+  split(.$survey_area) %>% 
+  map(function(.x){
+    
+    # Center the scale:
+    max_delta <- max(abs(.x$fall_delta), na.rm = T)
+    
+    # # Set alpha on fractions?:
+    # alpha_fracs <- (max_delta * c(1/4, 1/2, 3/4, 4)) / max_delta 
+    
+    ggplot(.x) +
+      geom_tile(aes(est_year, bin_label, fill = fall_delta)) +
+      scale_fill_distiller(
+        limits = c(-max_delta, max_delta),
+        palette = "PiYG",
+        direction = 1) +
+      facet_grid(bin_label~ survey_area, scales = "free", space = "free") +
+      labs(x = "Year", 
+           y = "",
+           fill = "Spring to Fall Seasonal Biomass Delta") +
+      theme(legend.position = "bottom",
+            axis.text.y = element_blank(),
+            legend.title.position = "top",
+            legend.title = element_text(hjust = 0.5))
+    
+    })
+
+```
+
+
+
+### What happened in 2017?
+
+Sampling in the two southern regions not conducted during 2017.
+
+```{r}
+wigley_in %>% 
+  filter(
+    est_year == 2017,
+    season == "Fall") %>% 
+  distinct(decdeg_beglon, decdeg_beglat) %>% 
+  ggplot(aes(decdeg_beglon, decdeg_beglat)) +
+  geom_point(shape = 3, size = 1)
+```
+
+

@@ -79,6 +79,8 @@ length_binspectra %>%
        color = "Season")
 
 
+
+
 ####  Length Spectra for Wigley Species  ####
 
 # Wigley species length spectra
