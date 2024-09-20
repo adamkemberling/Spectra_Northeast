@@ -10,6 +10,6 @@ This index page serves as a link directory to results reports. Use the following
  
  2. [Exploring Community Composition Changes](https://adamkemberling.github.io/Spectra_Northeast/Code/R/checks/community_composition_checks.html)
  
- 3. [Exploring Community Composition Changes](https://adamkemberling.github.io/Spectra_Northeast/Code/R/checks/regional_temperature_changes.html)
+ 3. [Exploring Regional Temperature Changes](https://adamkemberling.github.io/Spectra_Northeast/Code/R/checks/regional_temperature_changes.html)
  
  
