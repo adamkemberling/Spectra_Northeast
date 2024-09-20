@@ -1,0 +1,692 @@
+---
+title: "Regional Temperature Trends"
+author: "Adam Kemberling"
+date: "Updated on: `r Sys.Date()`"
+format: 
+  html:
+    toc: true
+    self-contained: true
+---
+
+# Regional Surface and Bottom Temperature Trends of Northeast US
+
+Determining rate of change and long-term net-change for surface and bottom temperatures of the Northeast US shelf regions.
+
+```{r}
+#| label: load packages and data
+
+library(raster)
+library(tidyverse)
+library(gmRi)
+library(rnaturalearth)
+library(scales)
+library(sf)
+library(gt)
+library(patchwork)
+library(tidyquant)
+conflicted::conflict_prefer("select", "dplyr")
+conflicted::conflict_prefer("filter", "dplyr")
+
+# Plot theme
+theme_set(theme_gmri(rect = element_rect(fill = "white", color = NA), legend.position = "bottom"))
+
+# Degree symbol
+deg_c <- "\u00b0C"
+
+# vectors for factor levels
+area_levels <- c("GoM", "GB", "SNE", "MAB")
+area_levels_long <- c("Gulf of Maine", "Georges Bank", "Southern New England", "Mid-Atlantic Bight")
+```
+
+
+```{r}
+#| label: load sst and bt
+
+
+# Monthly Bottom Temperature: Source 00_Bottom_Temp_Processing.R
+bpath <- cs_path("res", "Du_Pontavice_Combined_BT/RegionalTimeseries")
+all_bt_monthly <- read_csv(str_c(bpath, "trawl_region_monthly_bottom_temps.csv"))
+
+# Daily Surface Temperature: Source github.com/adamkemberling/oisst_mainstays
+gb_sst  <- oisst_access_timeseries(region_family = "trawl regions", poly_name = "georges bank", box_location = "cloudstorage")
+gom_sst <- oisst_access_timeseries(region_family = "trawl regions", poly_name = "gulf of maine", box_location = "cloudstorage")
+sne_sst <- oisst_access_timeseries(region_family = "trawl regions", poly_name = "southern new england", box_location = "cloudstorage")
+mab_sst <- oisst_access_timeseries(region_family = "trawl regions", poly_name = "mid atlantic bight", box_location = "cloudstorage")
+
+# Combine and average monthly
+all_sst_monthly <- bind_rows(
+  list(
+    "Gulf of Maine" = gom_sst,
+    "Georges Bank" = gb_sst,
+    "Southern New England" = sne_sst,
+    "Mid-Atlantic Bight" = mab_sst), 
+  .id = "survey_area") %>% 
+  group_by(
+    survey_area,
+    year = lubridate::year(time),
+    month = lubridate::month(time),
+    month = str_pad(month, side = "left", pad = "0", width = 2)) %>% 
+  summarise(sst = mean(area_wtd_sst, na.rm = T),
+            .groups = "drop")
+
+# Combine Surface and Bottom
+regional_temps <- full_join(
+  select(all_bt_monthly, survey_area, year, month, bot_temp),
+  all_sst_monthly) %>% 
+  mutate(
+    date = as.Date(str_c(year, month, "15", sep = "-")),
+    survey_area = fct_relevel(survey_area, area_levels_long))
+
+# Add anomalies from 1991-2020
+regional_clim <- regional_temps %>% 
+  filter(year %in% c(1991:2020)) %>% 
+  group_by(survey_area, month) %>% 
+  summarise(clim_sst = mean(sst),
+            clim_bt = mean(bot_temp)) %>% 
+  full_join(regional_temps) %>% 
+  mutate(sst_anom = sst - clim_sst,
+         bt_anom = bot_temp - clim_bt)
+```
+
+
+```{r}
+#| label: load spatial areas
+
+# Load polygons for aggregate regions based on trawl survey strata
+regions <- read_sf(here::here("Data/raw", "nmfs_trawl_regions_collection.geojson"))
+
+
+# Prepare the regions as single polygons:
+gb <- filter(regions, area == "Georges Bank") %>% st_union() %>% st_as_sf()
+gom <- filter(regions, area == "Gulf of Maine") %>% st_union() %>% st_as_sf()
+mab <- filter(regions, area == "Mid-Atlantic Bight") %>% st_union() %>% st_as_sf()
+sne <- filter(regions, area == "Southern New England") %>% st_union() %>% st_as_sf()
+
+
+
+```
+
+
+
+```{r}
+#| label: get seasonal averages
+
+# month weighting so we don't have to go back to daily when averaging
+seas_month_wts <- data.frame(
+    "month" =  c("03", "04", "05", "09", "10", "11"),
+    "n_days" = days_in_month(
+      as.Date(c("2000-03-01","2000-04-01","2000-05-01",
+                "2000-09-01","2000-10-01","2000-11-01"))))
+
+
+# Calculate average for the season
+seasonal_temps <- regional_clim %>% 
+  left_join(seas_month_wts) %>% 
+  mutate(
+    season = ifelse(
+      month %in% str_pad(c(3:5), side = "left", pad = "0", width = 2), 
+      "Spring", NA),
+    season = ifelse(
+      month %in% str_pad(c(9:11), side = "left", pad = "0", width = 2), 
+      "Fall", season),
+    survey_area = factor(survey_area, levels = area_levels_long)) %>% 
+  drop_na(season) %>% 
+  group_by(survey_area, year, season) %>% 
+  summarise(
+    sst = weighted.mean(sst, w = n_days),
+    clim_sst = weighted.mean(clim_sst, w = n_days),
+    sst_anom = weighted.mean(sst_anom, w = n_days),
+    bot_temp = weighted.mean(bot_temp, w = n_days),
+    clim_bt = weighted.mean(clim_bt, w = n_days),
+    bt_anom = weighted.mean(bt_anom, w = n_days),
+    .groups = "drop"
+  )
+
+
+# Calculate annual averages
+annual_temps <- regional_clim %>% 
+  mutate(n_days = days_in_month(date)) %>% 
+  group_by(survey_area, year) %>% 
+  summarise(
+    sst = weighted.mean(sst, w = n_days),
+    clim_sst = weighted.mean(clim_sst, w = n_days),
+    sst_anom = weighted.mean(sst_anom, w = n_days),
+    bot_temp = weighted.mean(bot_temp, w = n_days),
+    clim_bt = weighted.mean(clim_bt, w = n_days),
+    bt_anom = weighted.mean(bt_anom, w = n_days),
+    .groups = "drop"
+  )
+
+```
+
+
+### Map of Areas
+
+```{r}
+new_england <- ne_states("united states of america", returnclass = "sf")
+canada <- ne_states("canada", returnclass = "sf")
+
+(region_map <- regions %>% 
+  mutate(area = fct_relevel(area, area_levels_long)) %>% 
+  ggplot() +
+  geom_sf(aes(fill = area), alpha = 0.6) +
+  geom_sf(data = new_england) +
+  geom_sf(data = canada) +
+  theme_bw() +
+  map_theme() +
+  theme(legend.position = "inside", legend.position.inside = c(0.75, 0.18)) +
+  scale_fill_gmri() +
+  coord_sf(xlim = c(-76, -65.8), ylim = c(35.5, 44.4)) +
+  labs(fill = ""))
+```
+
+
+### Timeseries of Monthly Surface and Bottom Temperatures
+
+The following plot shows what the monthly average temperatures have been based on these two datasets.
+
+```{r}
+ggplot(regional_clim) +
+  geom_line(aes(date, sst, color = "SST")) +
+  geom_line(aes(date, bot_temp, color = "BT")) +
+  scale_color_gmri(reverse = T) +
+  facet_wrap(~survey_area, ncol = 1) +
+  labs(y = "Temperature", color = "Color")
+```
+
+
+
+
+
+### Timeseries of 1991-2020 Anomalies
+
+Both surface and bottom span this 30-year period so we can view them as anomalies based on the same reference period.
+
+.{panel-tabset}
+
+#### Annual
+
+```{r}
+ggplot(regional_clim) +
+  geom_line(aes(date, sst_anom, color = "Surface Temperature Anomalies")) +
+  geom_line(aes(date, bt_anom, color = "Bottom Temperature Anomalies")) +
+  scale_color_gmri(reverse = T) +
+  facet_wrap(~survey_area, ncol = 1) +
+  labs(y = "Temperature Anomaly", color = "Color")
+```
+
+#### Seasonal
+
+```{r}
+# Make these seasonal as if we were matching it to seasonal trawl data
+# Calculate average for the season
+seasonal_temps %>% 
+  rename(`Bottom Temperature` = bt_anom, `Surface Temperature` = sst_anom) %>% 
+  pivot_longer(names_to = "var", values_to = "vals", cols = ends_with("Temperature")) %>% 
+  ggplot(aes(year, vals, color = survey_area)) +
+  geom_point(alpha = 0.35, size = 0.5) +
+  geom_ma(aes(linetype = "5-Year Moving Average"), n = 5, ma_fun = SMA) +
+  facet_grid(fct_rev(var) ~ fct_rev(season)) +
+  scale_color_gmri() +
+  labs(y = "Temperature Anomaly\n(1991-2020 Baseline)",
+       linetype = "",
+       color = "Area")
+```
+
+
+:::
+
+### Long-Term Trends and Net Change
+
+These two datasets span a different range of years. For bottom temperature we will use from 1970 onward b/c we don't have any other data before then in this project so we already are framing from 1970-onward anyways. Surface temperature will be done from 1982 onward because that is the first full year.
+
+In the event of first order trends, net change over that time-span will be calculated as rate * years.
+
+I'll also be focusing on seasons to match the trawl survey as well.
+
+
+
+#### Annual Trends
+
+
+```{r}
+#| label: annual-bottom-temp trends
+
+# Run the bottom tempoerature trends on annual summaries
+start_yr <- 1970; end_yr <- 2019
+annual_bottom_trends <- annual_temps %>% 
+  filter(year %in% c(start_yr:end_yr)) %>% 
+  split(.$survey_area) %>% 
+  map_dfr(function(.x){
+    annual_mod <- lm(bot_temp ~ year, data = .x)
+    mod_summ <- summary(annual_mod)[["coefficients"]]
+    
+    # summary info
+    mod_trend = ifelse(mod_summ[2,4] < 0.05, T, F)
+    mod_rate = coef(annual_mod)[[2]]
+    
+    # tidy little output dataframe
+    signif <- data.frame(
+      "season" = c("Annual"),
+      "trend" = c(mod_trend),
+      "rate" = c(mod_rate)
+    
+      )
+    return(signif)},
+    .id = "survey_area") %>% 
+  mutate(
+    var = "Bottom Temperature\n(1970-2019)",
+    temp_delta = ifelse(trend == T, rate * (end_yr - start_yr), NA))
+```
+
+
+
+```{r}
+#| label: annual-surf-temp trends
+
+# Run the bottom tempoerature trends on annual summaries
+start_yr <- 1982; end_yr <- 2019
+annual_surface_trends <- annual_temps %>% 
+  filter(year %in% c(start_yr:end_yr)) %>% 
+  split(.$survey_area) %>% 
+  map_dfr(function(.x){
+    # linear model
+    annual_mod <- lm(sst ~ year, data = .x)
+    annual_summ <- summary(annual_mod)[["coefficients"]]
+  
+    # summary info
+    mod_trend = ifelse(annual_summ[2,4] < 0.05, T, F)
+    mod_rate = coef(annual_mod)[[2]]
+    
+    # tidy little output dataframe
+    signif <- data.frame(
+      "season" = c("Annual"),
+      "trend" = c(mod_trend),
+      "rate" = c(mod_rate)
+    
+      )
+    return(signif)},
+    .id = "survey_area") %>% 
+  mutate(
+    var = "Surface Temperature\n(1982-2019)",
+    temp_delta = ifelse(trend == T, rate * (end_yr - start_yr), NA))
+
+```
+
+
+
+```{r}
+#| label: combine-annual-trends
+
+# Combine those jokers
+annual_trends_summary <- bind_rows(annual_surface_trends, annual_bottom_trends) %>% 
+  mutate(survey_area = fct_relevel(survey_area, rev(area_levels_long)))
+
+# Dumbell Plot
+ggplot(annual_trends_summary) +
+  geom_segment(aes(
+    y = survey_area, yend = survey_area, 
+    x = 0, xend = temp_delta, color = var), position = position_dodge()) +
+  geom_point(aes(x = temp_delta, y = survey_area, color = var)) + 
+  geom_vline(xintercept = 0) +
+  scale_color_gmri() +
+  scale_x_continuous(labels = label_number(suffix = deg_c)) +
+  facet_wrap(~var, ncol = 2) +
+  theme(panel.grid.major.y = element_blank()) +
+  labs(
+    x = expression(Delta~"Temperature"), 
+    y = "", 
+    title = "Net Temperature Change",
+    fill = "")
+```
+
+
+
+
+
+```{r}
+# Maybe this should be a table:
+
+warming_table <- annual_trends_summary %>% 
+  select(-c(season, trend)) %>% 
+  rename(
+    area = survey_area,
+    `Net Change` = temp_delta, 
+    `Rate of Warming` = rate) %>% 
+  group_by(var) %>% 
+  gt(rowname_col = "area") %>% 
+  gt::tab_header(title = "Regional Surface and Bottom Temperature Change") %>% 
+  fmt(columns = `Rate of Warming`, fns = function(x){str_c(signif(x,2), deg_c, " / year")}) %>% 
+  fmt(columns = `Net Change`, fns = function(x){str_c(signif(x,2), deg_c)})
+  
+
+warming_table
+
+```
+
+
+
+
+#### Seasonal (Spring & Fall) Trends
+
+
+```{r}
+#| label: seasonal-bottom-temp-trends
+
+start_yr <- 1970; end_yr <- 2019
+seas_bottom_trends <- seasonal_temps %>% 
+  filter(year %in% c(start_yr:end_yr)) %>% 
+  split(.$survey_area) %>% 
+  map_dfr(function(.x){
+    spring_mod <- lm(bot_temp ~ year, data = filter(.x, season == "Spring"))
+    spring_summ <- summary(spring_mod)[["coefficients"]]
+    fall_mod <- lm(bot_temp ~ year, data = filter(.x, season == "Fall"))
+    fall_summ <- summary(fall_mod)[["coefficients"]]
+    
+    # summary info
+    spring_trend = ifelse(spring_summ[2,4] < 0.05, T, F)
+    spring_rate = coef(spring_mod)[[2]]
+    fall_trend = ifelse(fall_summ[2,4] < 0.05, T,F)
+    fall_rate = coef(fall_mod)[[2]]
+    
+    # tidy little output dataframe
+    signif <- data.frame(
+      "season" = c("Spring", "Fall"),
+      "trend" = c(spring_trend, fall_trend),
+      "rate" = c(spring_rate, fall_rate)
+    
+      )
+    return(signif)},
+    .id = "survey_area") %>% 
+  mutate(
+    var = "Bottom Temperature",
+    temp_delta = ifelse(trend == T, rate * (end_yr - start_yr), NA))
+
+```
+
+
+
+```{r}
+#| label: seasonal-surf-temp trends
+
+# Run the bottom tempoerature trends
+start_yr <- 1982; end_yr <- 2019
+seas_surface_trends <- seasonal_temps %>% 
+  filter(year %in% c(start_yr:end_yr)) %>% 
+  split(.$survey_area) %>% 
+  map_dfr(function(.x){
+    spring_mod <- lm(sst ~ year, data = filter(.x, season == "Spring"))
+    spring_summ <- summary(spring_mod)[["coefficients"]]
+    fall_mod <- lm(sst ~ year, data = filter(.x, season == "Fall"))
+    fall_summ <- summary(fall_mod)[["coefficients"]]
+    
+    # summary info
+    spring_trend = ifelse(spring_summ[2,4] < 0.05, T, F)
+    spring_rate = coef(spring_mod)[[2]]
+    fall_trend = ifelse(fall_summ[2,4] < 0.05, T,F)
+    fall_rate = coef(fall_mod)[[2]]
+    
+    # tidy little output dataframe
+    signif <- data.frame(
+      "season" = c("Spring", "Fall"),
+      "trend" = c(spring_trend, fall_trend),
+      "rate" = c(spring_rate, fall_rate)
+    
+      )
+    return(signif)},
+    .id = "survey_area") %>% 
+  mutate(
+    var = "Surface Temperature",
+    temp_delta = ifelse(trend == T, rate * (end_yr - start_yr), NA))
+
+```
+
+
+
+```{r}
+#| label: combine-seasonal-trends
+
+# Combine those jokers
+seas_trends_summary <- bind_rows(seas_surface_trends, seas_bottom_trends) %>% 
+  mutate(survey_area = fct_relevel(survey_area, rev(area_levels_long)),
+         season = fct_relevel(season, "Spring", "Fall"))
+
+  
+# Dumbell Plot
+ggplot(seas_trends_summary) +
+  geom_segment(aes(
+    y = survey_area, yend = survey_area, 
+    x = 0, xend = temp_delta, color = var), position = position_dodge()) +
+  geom_point(aes(x = temp_delta, y = survey_area, color = var)) + 
+  geom_vline(xintercept = 0) +
+  scale_color_gmri() +
+  scale_x_continuous(labels = label_number(suffix = deg_c)) +
+  facet_grid(var~season) +
+  theme(panel.grid.major.y = element_blank()) +
+  labs(
+    x = expression(Delta~"Temperature"), 
+    y = "", 
+    title = "Net Temperature Change",
+    fill = "")
+
+```
+
+
+### Baseline Shifting 
+
+This is more for conceptual figure. But to me, the broad-scale impacts to growth in a region are a manifestation of shifting baselines.
+
+This could be shown with seasonal variability changes as a curve, or maybe as a heatmap.
+
+Maybe just standardize all of them (monthly*regional averages) by the long term average?
+
+
+```{r}
+# Scale on long-term average of each month
+monthly_scaled_temps <- regional_temps %>% 
+  group_by(survey_area, month) %>% 
+  summarise(
+    avg_sst = mean(sst, na.rm = T),
+    avg_bt = mean(bot_temp, na.rm = T)) %>% 
+  full_join(regional_temps) %>% 
+  mutate(
+    rel_sst = sst - avg_sst,
+    rel_bt = bot_temp - avg_bt)
+```
+
+
+
+
+### Monthly Cycle Shifting Baselines
+
+
+```{r}
+#| label: shifting baseline curves
+
+monthly_scaled_temps %>% 
+  mutate(decade = floor_decade(year)) %>% 
+  group_by(survey_area, decade, month = as.numeric(month)) %>% 
+  summarise(
+    rel_sst = mean(rel_sst, na.rm = T),
+    rel_bt = mean(rel_bt, na.rm =T),
+    obs_sst = mean(sst, na.rm = T),
+    obs_bt = mean(bot_temp, na.rm = T)) %>% 
+  pivot_longer(cols = starts_with("rel"), values_to = "rel_temp", names_to = "rel_var") %>% 
+  pivot_longer(cols = starts_with("obs"), values_to = "obs_temp", names_to = "obs_var") %>% 
+  mutate(
+    rel_var = ifelse(str_detect(rel_var, "bt"), "Bottom Temperature", "Surface Temperature"),
+    obs_var = ifelse(str_detect(obs_var, "bt"), "Bottom Temperature", "Surface Temperature"),
+    month = str_pad(month, side = "left", pad = "0", width = 2),
+    base_date = as.Date(str_c("2000-", month, "-01"))) %>% 
+  ggplot() +
+  geom_line(aes(base_date, obs_temp, color = decade)) +
+  scale_color_gmri() +
+  scale_x_date(date_breaks = "1 month", labels = date_format("%b")) +
+  facet_grid(survey_area~obs_var)
+```
+
+#### Monthly Temperature Anomalies Heatmap
+
+
+```{r}
+#| label: plot-monthly-anom-heatmap
+
+monthly_scaled_temps %>% 
+  mutate(month = month.abb[as.numeric(month)],
+         month = fct_rev(fct_relevel(month, month.abb))) %>% 
+  select(-c(sst, bot_temp, avg_sst, avg_bt)) %>% 
+  pivot_longer(names_to = "var", values_to = "rel_temp", cols = c(rel_bt, rel_sst)) %>% 
+  mutate(var = if_else(var == "rel_bt", "Bottom Temperature", "Surface Temperature")) %>% 
+  filter(var == "Bottom Temperature") %>% 
+  drop_na(rel_temp) %>% 
+  ggplot() +
+  geom_tile(aes(x = year, y = month, fill = rel_temp)) +
+  scale_fill_distiller(palette = "RdBu", limits = c(-4,4), oob = oob_squish, labels = label_number(suffix = deg_c)) +
+  facet_grid(survey_area ~ var, scale = "free", space = "free") +
+  guides(fill = guide_colorbar(
+    barwidth = unit(5, "cm"), 
+    frame.colour = "black",
+    ticks.colour = "black")) +
+  scale_x_continuous(expand = expansion(add = c(0,0))) +
+  theme(legend.title.position = "top", 
+        axis.text.y = element_text(size = 8),
+  legend.title = element_text(hjust = 0.5)) +
+  labs(fill = "Temperature Departure from All-Year Average",
+       y = "")
+```
+
+## Temperature Anomalies
+
+
+
+Are regional anomalies (either annual or monthly) too correlated with actual temperatures to include together in a model?
+
+
+```{r}
+# Get overall correlation
+seasonal_temps %>% 
+  select(bot_temp, bt_anom) %>% 
+  drop_na() %>% 
+  summarise(corr = cor(x = bot_temp, y = bt_anom))
+
+seasonal_temps %>% 
+  select(bot_temp, bt_anom) %>% 
+  drop_na() %>% 
+  ggplot(aes(bot_temp, bt_anom)) +
+  geom_point() +
+  labs(x = "Absolute Bottom Temperature", y = "Regional Bottom Temperature Anomaly", title = "Correlation: 0.29")
+  
+
+```
+
+
+
+
+#### Modeling with Temperature & Anomalies
+
+```{r}
+#### Load Data  ####
+wigley_bmspectra_df <- read_csv(here::here("Data/model_ready/wigley_community_bmspectra_mod.csv")) 
+
+
+
+# Join temps Drop NA's
+# Wrangle baby
+wtb_model_df <-  seasonal_temps %>% 
+  rename(est_year = year) %>% 
+  mutate(survey_area = case_when(
+    survey_area == "Gulf of Maine" ~ "GoM",
+    survey_area == "Georges Bank" ~ "GB",
+    survey_area == "Southern New England" ~ "SNE",
+    survey_area == "Mid-Atlantic Bight" ~ "MAB")) %>% 
+  left_join( 
+    select(wigley_bmspectra_df, -bot_temp)) %>% #glimpse()
+  drop_na(b, total_weight_lb, bot_temp, bt_anom) %>%
+  group_by(survey_area, season) %>%
+  mutate(
+    roll_temp = zoo::rollapply(bot_temp, 5, mean, na.rm = T, align = "right",  fill = NA),
+    roll_anom = zoo::rollapply(bt_anom, 5, mean, na.rm = T, align = "right",  fill = NA),
+    .groups = "drop") %>% 
+  mutate(
+    yr_num = as.numeric(est_year),
+    yr_fac = factor(est_year),
+    survey_area = factor(survey_area, levels = area_levels),
+    season = factor(season, levels = c("Spring", "Fall")),
+    landings = total_weight_lb,
+    yr_seas = str_c(season, est_year))
+```
+
+
+
+```{r}
+#| label: plot-all-covariates
+
+# What do they look like on the same x axis?
+# Add median weight here:
+wigley_medwt_df <- read_csv(here::here("Data/model_ready/wigley_community_medsize_mod.csv"))
+select(wigley_medwt_df, survey_area, season, est_year, med_len_cm, med_wt_kg) %>% 
+  right_join(wtb_model_df) %>% 
+  select(survey_area, season, est_year, med_len_cm, med_wt_kg, b, total_weight_lb, bot_temp, bt_anom) %>% 
+  pivot_longer(
+    cols = c(med_len_cm, med_wt_kg, b, total_weight_lb, bot_temp, bt_anom), 
+    names_to = "var", values_to = "val") %>% 
+  mutate(survey_area = fct_relevel(survey_area, area_levels)) %>% 
+  ggplot(aes(est_year, val)) +
+  geom_point(aes(color = survey_area), alpha = 0.35, size = 0.5) +
+  geom_ma(aes(color = survey_area), n = 5, ma_fun = SMA, linetype = 1) +
+  facet_grid(var~fct_rev(season), scales = "free") +
+  scale_color_gmri() +
+  theme(legend.position = "bottom", strip.text.y = element_text(angle = 0)) +
+  labs(color = "5-Year Moving Average",
+       y = "Value",
+       x = "Year")
+  
+```
+
+
+```{r}
+#| label: plot SST anomalies and Spectra
+
+ggplot(wtb_model_df, aes(bt_anom, b)) +
+  geom_point()
+
+```
+
+
+
+```{r}
+#| evla: false
+
+# Make some models using anomalies or temperatures
+
+# actual mod
+library(lmerTest)
+library(performance)
+conflicted::conflicts_prefer(lmerTest::lmer)
+
+
+# Lets compare which one does better
+actual_temps_model <- lmer(
+  b ~ survey_area * season * scale(roll_temp) + survey_area*scale(log(total_weight_lb)) + (1|est_year), 
+  data = wtb_model_df)
+
+anomalies_temps_model <- lmer(
+  b ~ survey_area * season * scale(roll_anom) + survey_area*scale(log(total_weight_lb)) + (1|est_year), 
+  data = wtb_model_df)
+
+# # Make it make sense
+# summary(two_temps_model)
+
+check_model(actual_temps_model)
+check_model(anomalies_temps_model)
+
+performance(actual_temps_model)
+performance(anomalies_temps_model)
+
+# Quick plots
+plot(ggeffects::ggpredict(actual_temps_model , terms = ~roll_temp*survey_area*season), add.data = T)
+plot(ggeffects::ggpredict(anomalies_temps_model , terms = ~roll_anom*survey_area*season), add.data = T)
+
+
+```
+

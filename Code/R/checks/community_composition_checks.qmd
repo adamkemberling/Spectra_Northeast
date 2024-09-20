@@ -1,8 +1,15 @@
 ---
 title: "Exploring Seasonal Community Differences"
+author: "Adam Kemberling"
+date: "Updated on: `r Sys.Date()`"
 format: 
   html:
+    toc: true
     self-contained: true
+execute:
+  echo: false
+  message: false
+  warning: false
 ---
 
 
@@ -10,12 +17,20 @@ format:
 library(tidyverse)
 library(gmRi)
 library(rcartocolor)
+library(patchwork)
 
-# 
+
+# ggplot theme
 theme_set(
   theme_gmri(
     rect = element_rect(fill = "white", color = NA), 
-    strip.text.y = element_text(angle  = 0)))
+    strip.text.y = element_text(angle  = 0),
+    axis.text.x = element_text(size = 8)))
+
+# vectors for factor levels
+area_levels <- c("GoM", "GB", "SNE", "MAB")
+area_levels_long <- c("Gulf of Maine", "Georges Bank", "Southern New England", "Mid-Atlantic Bight")
+
 
 
 ```
@@ -36,10 +51,14 @@ If we break the size distribution into bins we can see how relative abundances h
 My interests here are to assess whether seasonal "steepening" is a result of bottom-up abundance gains in smaller size classes, or top-down loss/absence of larger individuals.
 
 ```{r}
+
 #| label: load wigley species data
 wigley_in <- read_csv(here::here("Data/processed/wigley_species_trawl_data.csv"))
+
 ```
 
+
+The next code chunk is for assigning log10 bin labels on which we can summarize abundance + biomass. This first step builds the labels as a dataframe for a specified size range.
 
 ```{r}
 #| label: Assign log bins
@@ -80,6 +99,8 @@ define_l10_bins <- function(l10_min = 0, l10_max = 4.5, l10_increment = 0.5){
 
 ```
 
+
+This next one adds those labels to a dataframe using a specified log size increment.
 
 ```{r}
 #' @title Assign Manual log10 Bodymass Bins
@@ -152,16 +173,19 @@ assign_log10_bins <- function(lengthclass_abundance_df, l10_increment = 1){
 }
 ```
 
+If we run the assignment we get a dataframe that can be grouped on:
+
 
 ```{r}
 #| label: perform assignment
 
+# Assign l10 bins
 wigley_l10 <- assign_log10_bins(wigley_in, l10_increment = 1)
-
-
 
 ```
 
+
+Next we can aggregate years and seasons to get a sense of where regional abundance and biomass is distributed across the size bins.
 
 ```{r}
 #| label: aggregating log10 bins
@@ -226,7 +250,8 @@ aggregate_l10_bins <- function(
   # The defined bins and their labels enforce the size limits
   l10_prepped <- left_join(
     x = l10_bin_structure, 
-    y = l10_aggregates)
+    y = l10_aggregates, 
+    by = join_by(left_lim))
   
   
   #### Fill Gaps with Zero's??
@@ -242,11 +267,14 @@ aggregate_l10_bins <- function(
   #### normalize abundances using the bin widths
   l10_prepped <- l10_prepped %>% 
     mutate(
-      normalized_abund = abundance / bin_width)
+      normalized_abund = abundance / bin_width,
+      normalized_biom = weight_g / bin_width)
   
   # Add de-normalized abundances (abundance * bin midpoint)
   l10_prepped <- l10_prepped %>% 
-    mutate(denorm_abund = normalized_abund * bin_midpoint)
+    mutate(
+      denorm_abund = normalized_abund * bin_midpoint,
+      denorm_biom = normalized_biom * bin_midpoint)
   
   # Return the aggregations
   return(l10_prepped)
@@ -268,22 +296,132 @@ wigley_seasonal_aggs <- wigley_l10 %>%
          survey_area = factor(survey_area, levels = c("GoM", "GB", "SNE", "MAB")))
 
 
-# Plot the actual
+```
+
+
+The next panel plots changes in normalized abundance. This is the aggregate abundance divided by the size-bin width.
+
+```{r}
+# Plot the normalized abundances
 wigley_seasonal_aggs %>% 
-  filter(#survey_area == "SNE",
-         left_lim <= 5) %>% 
-  split(.$bin_label) %>% 
-  map(
-    ~ggplot(.x) +
-  geom_tile(aes(est_year, season, fill = normalized_abund)) +
-  scale_fill_carto_c(palette = "SunsetDark") +
+  filter(left_lim <= 5) %>% 
+  #split(.$bin_label) %>% 
+  #map(
+    #~ggplot(.x) +
+    ggplot() +
+      geom_tile(aes(est_year, season, fill = normalized_abund)) +
+      scale_fill_carto_c(palette = "SunsetDark") +
+      facet_grid(survey_area ~ bin_label, scales = "free") +
+      theme(legend.position = "bottom") +
+      guides(
+        fill = guide_colorbar(title.hjust = 0.5, title.position = "top")) +
+      labs(x = "Year", fill = "Normalized Abundance")
+#)
+```
+
+
+### Size Bin Changes in Time
+
+```{r}
+wigley_seasonal_aggs %>% 
+  mutate(decade = floor_decade(est_year)) %>% 
+  ggplot() +
+  geom_boxplot(aes(factor(left_lim), normalized_abund, color = decade), position = position_dodge()) +
   facet_grid(survey_area ~ bin_label, scales = "free") +
-  labs(x = "Year"))
+  scale_color_gmri() +
+  theme(axis.text.x = element_blank()) +
+  labs(y = "Abundance / Bin Size",
+       x = "")
+
+# Do the different bins on their own scales
+bin_decades <- wigley_seasonal_aggs %>% 
+  mutate(decade = floor_decade(est_year)) %>% 
+  split(.$bin_label) %>% 
+  map(function(x){
+    
+    ggplot(x) +
+      geom_boxplot(aes(factor(left_lim), normalized_abund, color = decade), position = position_dodge()) +
+      facet_grid(survey_area ~ bin_label, scales = "free") +
+      scale_color_gmri() +
+      theme(axis.text.x = element_blank()) +
+      labs(y = "Abundance / Bin Size",
+           x = "")
+    
+  })
   
   
-# Plot the Change
+```
+
+
+:::{.panel-tabset}
+
+#### 1-10g
+
+```{r}
+bin_decades[[1]]
+```
+
+
+#### 10-100g
+
+```{r}
+bin_decades[[2]]
+```
+
+#### 100g-1kg
+
+```{r}
+bin_decades[[3]]
+```
+
+#### 1-10kg
+```{r}
+bin_decades[[4]]
+```
+
+:::
+
+
+## Normalized Biomass Changes
+
+This panel are the same, but for normalized biomass.
+
+```{r}
+# Plot the normalized biomass
 wigley_seasonal_aggs %>% 
-  pivot_wider(id_cols = c(est_year, survey_area, bin_label), values_from = normalized_abund, names_from = season) %>% 
+  filter(left_lim <= 5) %>% 
+  mutate(bin_label = fct_rev(bin_label)) %>% 
+  ggplot() +
+      geom_tile(aes(est_year, season, fill = normalized_biom)) +
+      scale_fill_carto_c(palette = "SunsetDark") +
+      facet_grid(bin_label~survey_area, scales = "free") +
+      theme(legend.position = "bottom") +
+      guides(
+        fill = guide_colorbar(
+          title.hjust = 0.5, 
+          title.position = "top",
+          barwidth = unit(6, "cm"),
+          frame.colour = "black")) +
+      labs(x = "Year", y = "", fill = "Normalized Biomass")
+
+
+
+```
+
+### Seasonal Differences in Size Bins
+
+The intra-annual variability in spectra slopes for the Mid-Atlantic Bight in particular are really throwing me off.
+
+The following figure shows what the within-year changes in normalized biomass is for each size bin.
+
+
+```{r}
+# Plot the Change
+seas_bin_changes <- wigley_seasonal_aggs %>% 
+  pivot_wider(
+    id_cols = c(est_year, survey_area, bin_label), 
+    values_from = normalized_abund, 
+    names_from = season) %>% 
   mutate(fall_delta = Spring - Fall) %>% 
   split(.$survey_area) %>% 
   map(function(.x){
@@ -301,9 +439,11 @@ wigley_seasonal_aggs %>%
         palette = "PiYG",
         direction = 1) +
       facet_grid(bin_label~ survey_area, scales = "free", space = "free") +
+      guides(fill = guide_colourbar(barwidth = unit(4, "cm"),
+                                    frame.color = "black")) +
       labs(x = "Year", 
            y = "",
-           fill = "Spring to Fall Seasonal Biomass Delta") +
+           fill = "Spring to Fall Normalized Abundance Delta") +
       theme(legend.position = "bottom",
             axis.text.y = element_blank(),
             legend.title.position = "top",
@@ -314,10 +454,45 @@ wigley_seasonal_aggs %>%
 ```
 
 
+::: {.panel-tabset}
+
+#### GOM
+
+```{r}
+#| fig-height: 8
+seas_bin_changes$GoM
+```
+
+
+#### GB
+
+```{r}
+#| fig-height: 8
+seas_bin_changes$GB
+```
+
+#### SNE
+
+```{r}
+#| fig-height: 8
+seas_bin_changes$SNE
+```
+
+
+#### MAB
+
+```{r}
+#| fig-height: 8
+seas_bin_changes$MAB
+```
+
+
+
+:::
 
 ### What happened in 2017?
 
-Sampling in the two southern regions not conducted during 2017.
+Sampling in the two southern regions not conducted during 2017. 
 
 ```{r}
 wigley_in %>% 
@@ -326,7 +501,332 @@ wigley_in %>%
     season == "Fall") %>% 
   distinct(decdeg_beglon, decdeg_beglat) %>% 
   ggplot(aes(decdeg_beglon, decdeg_beglat)) +
-  geom_point(shape = 3, size = 1)
+  geom_point(shape = 3, size = 1) 
+```
+
+# Species Specific Size-Bin Seasonality
+
+Really curious if there are any key species that are driving things or that stand out:
+
+Species standing out seasonally for normalized abundance:
+
+ * Silver Hake \ 
+ * Butterfish \
+
+
+Species standing out for normalized biomass:
+
+ * spiny dogfish \
+ * Spotted hake \
+
+General notes, GOM seems way more seasonal (more species showing up in plots, and tendency to lose biomass in the fall)
+
+```{r}
+
+# Aggregate on year, area, season, comname
+wigley_species_aggs <- wigley_l10 %>% 
+  mutate(group_var = str_c(est_year, "XX", survey_area, "XX", season, "XX", comname)) %>% 
+  split(.$group_var) %>% 
+  map_dfr(
+    .f = ~aggregate_l10_bins(.x, min_l10_bin = 0, max_l10_bin = 4, bin_increment = 1), 
+  .id = "group_var") %>% 
+  separate(group_var, into = c("est_year", "survey_area", "season", "comname"), sep = "XX") %>% 
+  mutate(est_year = as.numeric(est_year),
+         survey_area = factor(survey_area, levels = c("GoM", "GB", "SNE", "MAB")))
+
+
+
+
+# Plot the Seasonal Species Change
+seas_species_changes <- wigley_species_aggs %>% 
+  pivot_wider(
+    id_cols = c(est_year, survey_area, bin_label, comname), 
+    values_from = normalized_biom, names_from = season) %>% 
+  mutate(fall_delta = Spring - Fall) %>% 
+  #filter(bin_label == "10 - 100g") %>% 
+  split(.$survey_area) %>% 
+  map(function(.x){
+    
+    # Center the scale:
+    max_delta <- max(abs(.x$fall_delta), na.rm = T)
+    
+    # # Set alpha on fractions?:
+    # alpha_fracs <- (max_delta * c(1/4, 1/2, 3/4, 4)) / max_delta 
+    
+    ggplot(.x) +
+      geom_tile(aes(est_year, comname, fill = fall_delta), color = NA) +
+      scale_fill_distiller(
+        limits = c(-max_delta, max_delta),
+        palette = "PiYG",
+        direction = 1, na.value = "white") +
+      facet_grid(. ~ bin_label * survey_area, scales = "free", space = "free") +
+      labs(x = "Year", 
+           y = "Comname",
+           fill = "Spring to Fall Normalized Biomass Delta") +
+      guides(fill = guide_colourbar(barwidth = unit(5, "cm"),
+                                    frame.color = "black")) +
+      theme(
+        panel.grid = element_blank(), 
+        panel.grid.major.x = element_blank(), 
+        panel.grid.major.y = element_blank(), 
+        legend.position = "bottom",
+        axis.text.y = element_text(size = 4),
+        legend.title.position = "top",
+        legend.title = element_text(hjust = 0.5))
+    
+    })
+
 ```
 
 
+
+::: {.panel-tabset}
+
+#### GOM
+
+```{r}
+#| fig-height: 8
+seas_species_changes$GoM
+```
+
+
+#### GB
+
+```{r}
+#| fig-height: 8
+seas_species_changes$GB
+```
+
+#### SNE
+
+```{r}
+#| fig-height: 8
+seas_species_changes$SNE
+```
+
+
+#### MAB
+
+```{r}
+#| fig-height: 8
+seas_species_changes$MAB
+```
+
+
+
+:::
+
+# Seasonal Change in Size Spectra
+
+```{r}
+# Load the spectra 
+wigley_bmspectra_df <- read_csv(here::here("Data/model_ready/wigley_community_bmspectra_mod.csv")) 
+
+# Plot slope difference
+bm_diff <- wigley_bmspectra_df %>% 
+  select(survey_area, est_year, season, b, bot_temp) %>% 
+  pivot_wider(names_from = season, values_from = c(b, bot_temp)) %>% 
+  mutate(b_delta = b_Fall - b_Spring,
+         btemp_delta = bot_temp_Fall - bot_temp_Spring) 
+
+# Plot what the b-delta is, big
+bm_diff %>% 
+  ggplot() +
+    geom_segment(aes(x = est_year, xend =est_year, y = 0, yend  = b_delta)) +
+    #geom_line(aes(x = est_year, y  = b_delta)) +
+  facet_wrap(~survey_area) +
+  labs(y = "Within Year Change in Mass Spectra (b)",
+       x = "")
+
+# Plot the Relationship Between Slope Difference and Seasonal Temperature Difference
+bm_diff %>% 
+  mutate(survey_area = factor(survey_area, levels = area_levels)) %>% 
+  ggplot() +
+  geom_point(aes(btemp_delta,  b_delta, color = survey_area)) +
+  scale_color_gmri() +
+  geom_smooth(aes(btemp_delta, b_delta), method = "lm", color = "black") +
+  labs(title = "Seasonal Spectra Delta ~ Seasonal Temperature Delta",
+       subtitle = "Within-year Change from Spring to Fall",
+       x = expression(Delta~"Temperature"),
+       y = expression(Delta~"b"))
+
+```
+
+
+
+# Seasonal Difference in Median Size
+
+Are the same-year median size differences plausible for growth? They could just have grown.
+
+```{r}
+# Load the median weight/length data
+wigley_medwt_df <- read_csv(here::here("Data/model_ready/wigley_community_medsize_mod.csv"))
+```
+
+
+
+::: {.panel-tabset}
+
+#### Median Length
+
+```{r}
+# Plot length difference
+wigley_medwt_df %>% 
+  select(survey_area, est_year, season, med_len_cm) %>% 
+  pivot_wider(names_from = season, values_from = med_len_cm) %>% 
+  mutate(length_delta = Fall - Spring) %>% 
+  ggplot() +
+    #geom_segment(aes(x = est_year, xend =est_year, y = 0, yend  = length_delta)) +
+    geom_hline(yintercept = 0, linetype = 2) +  
+    geom_line(aes(x = est_year, y  = length_delta)) +
+    facet_wrap(~survey_area) +
+    labs(y =  expression(Delta~"Median Length (cm)"),
+         x = "",
+         title = "Spring -> Fall Median Length Change")
+```
+
+#### Median Weight
+
+```{r}
+# Plot length difference
+wigley_medwt_df %>% 
+  select(survey_area, est_year, season, med_wt_kg) %>% 
+  pivot_wider(names_from = season, values_from = med_wt_kg) %>% 
+  mutate(weight_delta = Fall - Spring) %>% 
+  ggplot() +
+    # geom_segment(aes(x = est_year, xend =est_year, y = 0, yend  = weight_delta)) +
+    geom_hline(yintercept = 0, linetype = 2) +  
+    geom_line(aes(x = est_year, y  = weight_delta)) +
+    facet_wrap(~survey_area) +
+    labs(y = expression(Delta~"Median Weight (kg)"),
+         x = "",
+         title = "Spring -> Fall Median Weight Change")
+```
+
+:::
+
+## Mid-Atlantic Bight Dogfish
+
+There is some evidence above that larger individuals in MAB-Spring are driving the trend there, try digging into that a little.
+
+```{r}
+# Annual summaries
+mab_annual_summ <- wigley_l10 %>% 
+  filter(
+    survey_area == "MAB",
+    bin_label == "1000 - 10000g") %>% 
+  group_by(survey_area, season, est_year, comname, bin_label) %>% 
+  summarise(
+    total_abund = sum(numlen_adj),
+    total_biom = sum(sum_weight_kg)) %>% 
+  mutate(
+    most_abund = if_else(comname %in% c("spiny dogfish", "smooth dogfish", "clearnose skate", "striped bass", "summer flounder"), TRUE, FALSE),
+    most_biom = if_else(comname %in% c("spiny dogfish", "smooth dogfish", "striped bass", "goosefish", "winter skate"), TRUE, FALSE),
+    dogfish = ifelse(comname == "spiny dogfish", "Spiny Dogfish", "Other Species"))
+```
+
+
+::: {.panel-tabset}
+
+#### Abundance
+
+```{r}
+mab_annual_summ %>% 
+  ggplot(aes(est_year, total_abund, fill = dogfish)) +
+    geom_col() +
+  facet_wrap(~bin_label * survey_area * fct_rev(season)) +
+  scale_fill_gmri() +
+  labs(y = "Total Abundance")
+```
+
+
+#### Biomass
+
+```{r}
+mab_annual_summ %>% 
+  ggplot(aes(est_year, total_biom, fill = dogfish)) +
+    geom_col() +
+  facet_wrap(~bin_label * survey_area * fct_rev(season)) +
+  scale_fill_gmri() +
+  labs(y = "Total Biomass (kg)")
+```
+:::
+
+# Highly Seasonal Species
+
+
+```{r}
+# Annual summaries
+overall_seasonality <- wigley_l10 %>% 
+  filter(left_lim >= 0,
+         left_lim <= 3) %>% #distinct(bin_label)
+  group_by(survey_area, season,comname, bin_label, bin_width) %>% 
+  summarise(
+    total_abund = sum(numlen_adj)/(2019-1970),
+    total_biom = sum(sum_weight_kg)/(2019-1970),
+    .groups = "drop") %>% 
+  mutate(
+    total_abund = if_else(is.na(total_abund), 0, total_abund),
+    total_biom = if_else(is.na(total_biom), 0, total_biom)) %>% 
+  pivot_wider(
+    names_from = "season", 
+    values_from = starts_with("total"), 
+    values_fill = 0) %>% 
+  mutate(
+    seas_mean_abund = (total_abund_Fall - total_abund_Spring)/2,
+    abund_change = total_abund_Fall - total_abund_Spring,
+    norm_abund_change = abund_change / bin_width,
+    seas_mean_biom = (total_biom_Fall - total_biom_Spring)/2,
+    biom_change = total_biom_Fall - total_biom_Spring,
+    norm_biom_change = biom_change / bin_width,
+    survey_area = fct_relevel(survey_area, area_levels))
+```
+
+::: {.panel-tabset}
+
+### Fall Increases
+
+```{r}
+#| fig-height: 10
+
+
+# Species that increase going into Fall
+overall_seasonality %>% 
+  group_by(survey_area, bin_label) %>% 
+  arrange(desc(biom_change)) %>% 
+  slice_head(n = 5) %>% 
+  #ungroup() %>% 
+  ggplot() +
+  geom_col(aes(x = biom_change, y = comname)) +
+  facet_grid(survey_area * bin_label ~ ., scales = "free") +
+  theme(axis.text.y = element_text(size = 6)) +
+  labs(title = "Top 5 Fall Species Increases",
+       subtitle = "Ordered by biomass change, within a region and size bin",
+       x = "Average Biomass Difference Spring to Fall (kg)",
+       y = "Common Name")
+```
+
+### Fall Decreases
+
+```{r}
+#| fig-height: 10
+
+# Species that Decrease going into Fall
+overall_seasonality %>% 
+  group_by(survey_area, bin_label) %>% 
+  arrange(biom_change) %>% 
+  slice_head(n = 5) %>% 
+  #ungroup() %>% 
+  ggplot() +
+  geom_col(aes(x = biom_change, y = comname)) +
+  facet_grid(survey_area * bin_label ~ ., scales = "free") +
+  theme(axis.text.y = element_text(size = 6)) +
+  labs(
+    title = "Top 5 Fall Species Decreases",
+    subtitle = "Ordered by seasonal biomass change, within a region and size bin",
+       x = "Average Biomass Difference Spring to Fall (kg)",
+       y = "Common Name")
+    
+```
+
+:::

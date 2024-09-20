@@ -52,4 +52,6 @@ rsconnect/
 Data/raw/*
 Data/processed/*
 Data/models_and_results/*
+stash/*
+.DS_Store
 

@@ -1,4 +1,8 @@
 
+#This script/file has changed its intentions from being strictly the modeling code
+# to being the consolidation script for key figures
+
+
 #### Modeling Bodymass Spectra  ####
 library(lme4)
 library(lmerTest)
@@ -92,19 +96,20 @@ temp_preds %>%
   mutate(season = factor(season, levels = c("Spring", "Fall"))) %>% 
   filter(non_zero) %>% 
   ggplot() +
-  geom_ribbon(aes(x, ymin = conf.low, ymax = conf.high, group = survey_area), alpha = 0.1) +
+  geom_ribbon(aes(x, ymin = conf.low, ymax = conf.high, group = season), alpha = 0.1) +
   geom_line(
-    aes(x, predicted, color = survey_area), 
+    aes(x, predicted, color = season), 
     linewidth = 1) +
   geom_line(
     data = wtb_model_df,
-    aes(est_year, bot_temp, color = survey_area), alpha = 0.4, linewidth = 0.5) +
-  facet_grid(survey_area~season, scales = "free") +
+    aes(est_year, bot_temp, color = season), alpha = 0.4, linewidth = 0.5) +
+  facet_wrap(~survey_area, scales = "free", ncol = 1) +
   scale_color_gmri() +
+  theme(legend.position = "bottom") +
   labs(
     title = "Seasonal Bottom Temperature Trends",
-    subtitle = "Significant Annual Trend Fits Shown",
-    y = "Seasonal Bottom Temperature")
+    y = "Seasonal Bottom Temperature",
+    color = "Season")
 
 
 
@@ -112,33 +117,41 @@ temp_preds %>%
 
 
 
-#### For context, what   ####
+#### For context, what other changes are ocurring   ####
 
 
-# b ~ temp
-ggplot(wtb_model_df) +
-  geom_point(aes(bot_temp, b, color = survey_area)) +
-  facet_grid(.~season) +
-  scale_color_gmri() 
+# # b ~ temp
+# ggplot(wtb_model_df) +
+#   geom_point(aes(bot_temp, b, color = survey_area)) +
+#   facet_grid(.~season) +
+#   scale_color_gmri() 
+# 
+# 
+# # b ~ landings
+# ggplot(wtb_model_df) +
+#   geom_point(aes(log10(total_weight_lb), b, color = survey_area)) +
+#   facet_grid(survey_area~season) +
+#   scale_color_gmri() 
 
 
-# b ~ landings
-ggplot(wtb_model_df) +
-  geom_point(aes(log10(total_weight_lb), b, color = survey_area)) +
-  facet_grid(survey_area~season) +
-  scale_color_gmri() 
+
 
 
 # What do they look like on the same x axis?
-wtb_model_df %>% 
-  select(survey_area, season, est_year, b, total_weight_lb, bot_temp) %>% 
-  pivot_longer(cols = c(b, total_weight_lb, bot_temp), names_to = "var", values_to = "val") %>% 
+# Add median weight here:
+wigley_medwt_df <- read_csv(here::here("Data/model_ready/wigley_community_medsize_mod.csv"))
+select(wigley_medwt_df, survey_area, season, est_year, med_len_cm, med_wt_kg) %>% 
+  right_join(wtb_model_df) %>% 
+  select(survey_area, season, est_year, med_len_cm, med_wt_kg, b, total_weight_lb, bot_temp) %>% 
+  pivot_longer(
+    cols = c(med_len_cm, med_wt_kg, b, total_weight_lb, bot_temp), 
+    names_to = "var", values_to = "val") %>% 
   ggplot(aes(est_year, val)) +
   geom_point(aes(color = survey_area), alpha = 0.35, size = 0.5) +
   geom_ma(aes(color = survey_area), n = 5, ma_fun = SMA, linetype = 1) +
-  facet_grid(var~season, scales = "free") +
+  facet_grid(var~fct_rev(season), scales = "free") +
   scale_color_gmri() +
-  theme(legend.position = "bottom") +
+  theme(legend.position = "bottom", strip.text.y = element_text(angle = 0)) +
   labs(color = "5-Year Moving Average",
        y = "Value",
        x = "Year")
@@ -157,20 +170,13 @@ wtb_model_df %>%
 
 
 #### Model 1:  Trends in Time  ####
-# mod1 <- lmer(
-#   formula = b ~ est_year*survey_area*season + (1|est_year), 
-#   data = wtb_model_df)
-# summary(mod1)
-mod1_c <- lmer(
-  formula = b ~ est_year*survey_area + (1|yr_seas), 
+
+# Year as RE
+mod1 <- lmer(
+  formula = b ~ est_year*survey_area*season + (1|est_year),
   data = wtb_model_df)
-summary(mod1_c)
-
-# Same stories
-plot(ggeffects::ggpredict(mod1, terms = ~est_year*survey_area*season), add.data = T )
-
-
-
+summary(mod1)
+plot(ggeffects::ggpredict(mod1, terms = ~est_year*survey_area*season), show_data = T )
 
 
 # Plot the predictions over data
@@ -179,6 +185,7 @@ mod1_preds <- as.data.frame(
   mutate(
     survey_area = factor(group, levels = area_levels),
     season = factor(facet, levels = c("Spring", "Fall")))
+
 
 
 # Drop effect fits that are non-significant  ###
@@ -192,7 +199,9 @@ mod1_emtrend <- emtrends(
          non_zero = if_else(between(zero, lower.CL, upper.CL), F, T))
 
 
+
 # Plot over observed data
+# Contrast seasonal differences
 mod1_preds  %>% 
   left_join(select(mod1_emtrend, survey_area, season, non_zero)) %>% 
   filter(non_zero) %>% 
@@ -206,16 +215,17 @@ mod1_preds  %>%
     aes(yr_num, b, color = season),
     alpha = 0.4,
     linewidth = 0.5) +
-  facet_wrap(~survey_area, scales = "free") +
+  facet_wrap(~survey_area, scales = "free", ncol = 1) +
   scale_color_gmri() +
-  labs(y = "Body Mass Spectra Slope (b)",
-       title = "Wigley Species, Body Mass Spectra",
+  theme(legend.position = "bottom") +
+  labs(y = "Mass Spectra Slope (b)",
+       title = "Wigley Species",
+       color = "Survey Season",
        x = "Year")
 
 
 
-
-# Plot over observed data
+# Contrast different areas
 mod1_preds  %>% 
   left_join(select(mod1_emtrend, survey_area, season, non_zero)) %>% 
   filter(non_zero) %>% 
@@ -237,7 +247,13 @@ mod1_preds  %>%
 
 
 
-#### Model 1b. year_seas ####
+
+
+
+
+
+
+#### Model 1b. year_seas random effect ####
 
 mod1 <- lmer(
   formula = b ~ est_year*survey_area*season + (1|yr_seas), 
@@ -294,7 +310,7 @@ mod1_preds  %>%
     aes(yr_num, b, color = season),
     alpha = 0.4,
     linewidth = 0.5) +
-  facet_wrap(~survey_area, scales = "free") +
+  facet_wrap(~survey_area, scales = "free", ncol = 1) +
   scale_color_gmri() +
   labs(y = "Body Mass Spectra Slope (b)",
        title = "Wigley Species, Body Mass Spectra",
@@ -331,6 +347,9 @@ mod1_preds  %>%
 
 
 
+####________________________#####
+
+
 #### Model 2: Temperature & Fishing ####
 
 # actual mod
@@ -343,10 +362,8 @@ summary(mod2)
 # check_model(mod2)
 
 
-
 # Quick plot
 plot(ggeffects::ggpredict(mod2, terms = ~roll_temp*survey_area*season), add.data = T)
-
 
 
 
@@ -362,7 +379,7 @@ mod2_preds <- as.data.frame(
 
 
 
-# #### Mod 2: Trend Posthoc  ####
+#### Trend Posthoc  ####
 trend_df <- emtrends(
   object = mod2,
   ~survey_area * season,
@@ -404,18 +421,20 @@ mod2_preds %>%
   ggplot() +
   geom_ribbon(aes(x, ymin = conf.low, ymax = conf.high, group = survey_area), alpha = 0.1) +
   geom_line(
-    aes(x, predicted, color = survey_area), 
+    aes(x, predicted, color = season), 
     linewidth = 1) +
   geom_point(
     data = wtb_model_df,
-    aes(roll_temp, b, color = survey_area),
+    aes(roll_temp, b, color = season),
     alpha = 0.4,
     size = 1) +
-  facet_grid(survey_area~season, scales = "free") +
+  facet_grid(survey_area~., scales = "free") +
   scale_color_gmri() +
   labs(y = "Body Mass Spectra Slope (b)",
        title = "Wigley Species, Body Mass Spectra",
        x = "5-Year Rolling Average Bottom Temperature")
+
+
 
 
 
@@ -435,10 +454,10 @@ mod2 <- lmer(
 
 
 
-# Quick plot
-# plot(ggeffects::ggpredict(mod2, terms = ~roll_temp*survey_area*season), add.data = T)
-plot(ggeffects::ggpredict(mod2, terms = ~roll_temp*survey_area), add.data = T) +
-  scale_color_gmri()
+# # Quick plot
+# # plot(ggeffects::ggpredict(mod2, terms = ~roll_temp*survey_area*season), add.data = T)
+# plot(ggeffects::ggpredict(mod2, terms = ~roll_temp*survey_area), add.data = T) +
+#   scale_color_gmri()
 
 
 
@@ -455,7 +474,7 @@ mod2_preds <- as.data.frame(
   mutate(
     survey_area = factor(group, levels = area_levels)  )
 
-# Trend Posthoc 
+####  Trend Posthoc   ####
 trend_df <- emtrends(
   object = mod2,  
   ~survey_area, 
@@ -492,21 +511,26 @@ mod2_preds %>%
   ggplot() +
   geom_ribbon(aes(x, ymin = conf.low, ymax = conf.high, group = survey_area), alpha = 0.1) +
   geom_line(
-    aes(x, predicted, color = survey_area), 
+    aes(x, predicted), 
     linewidth = 1) +
   geom_point(
     data = wtb_model_df,
-    aes(roll_temp, b, color = survey_area, shape = season),
+    aes(roll_temp, b, color = season, shape = season),
     alpha = 0.6,
     size = 1.2) +
   facet_grid(survey_area~.) +
   scale_color_gmri() +
   scale_x_continuous(labels = label_number(suffix = deg_c)) +
-  labs(y = "Body Mass Spectra Slope (b)",
+  labs(y = "Mass Spectra Slope (b)",
        title = "Wigley Species, Body Mass Spectra",
        shape = "Season",
        color = "Area",
        x = "5-Year Rolling Bottom Temperature")
+
+
+
+
+
 
 
 
