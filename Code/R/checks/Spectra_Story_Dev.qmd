@@ -1,0 +1,620 @@
+---
+title: "Spectra Story"
+author: "Adam Kemberling"
+date: "Updated on: `r Sys.Date()`"
+format: 
+  html:
+    toc: true
+    self-contained: true
+execute:
+  echo: false
+  message: false
+  warning: false
+editor: source
+---
+
+
+
+```{r}
+# Libraries
+library(raster)
+library(tidyverse)
+library(gmRi)
+library(rnaturalearth)
+library(scales)
+library(sf)
+library(gt)
+library(patchwork)
+library(lmerTest)
+library(emmeans)
+library(merTools)
+library(tidyquant)
+library(ggeffects)
+library(performance)
+conflicted::conflict_prefer("select", "dplyr")
+conflicted::conflict_prefer("filter", "dplyr")
+conflicted::conflicts_prefer(lmerTest::lmer)
+
+# ggplot theme
+theme_set(
+  theme_gmri(
+    rect = element_rect(fill = "white", color = NA), 
+    strip.text.y = element_text(angle  = 0),
+    axis.text.x = element_text(size = 8)))
+
+# vectors for factor levels
+area_levels <- c("GoM", "GB", "SNE", "MAB")
+area_levels_long <- c("Gulf of Maine", "Georges Bank", "Southern New England", "Mid-Atlantic Bight")
+
+# Degree symbol
+deg_c <- "\u00b0C"
+
+```
+
+## Storycrafting - Northeast Shelf Spectra
+
+I think we need to step back a bit and find the main story again--which is about how size structure of the NES fish community has changed over time, whether that varies by region, and what covariates are associated with those changes.  
+
+The Aug draft you developed really focused on comparing regression models to consider drivers based on the fish community size spectrum as viewed from the perspective of the Wigley species set vs. the full species set.  
+
+However, I didn't see figures of those spectra in that draft (maybe there are somewhere else and I've lost track).  The recent slide deck really focuses on seasonal differences in the size spectra and influence of temperature.
+
+## Starting from Square Uno
+
+I'd like for us to start by rebuilding the story of how the size structure has changed over time and regional differences.  
+
+As such, I would like for us to look at plots of the size spectrum slope for (1) the all-species length spectrum and (2) the Wigley species biomass spectrum from annual, seasonal and regional perspectives.  
+
+I am thinking this would be two panel plots (all-spp length, Wigley-spp biomass) with 5 subpanels each (NES, GOM, GB, SNE, MAB) that are set up to show lines by seasonal and annual time steps, much like the plot on the right of slide 7 in your most recent slide deck...except with NES added and an annual line added.  Keeping the significant trend lines in is helpful.  This is the first step, so when you have that ready, please share it with the group.
+
+# To do: add significant trends to these
+
+
+```{r}
+#| label: all species vs wigley species length and mass spectrum
+
+# Load the three datasets
+wigley_lenspectra <- read_csv(
+  here::here("Data/processed/wigley_species_length_spectra.csv")) 
+wigley_bmspectra <- read_csv(
+  here::here("Data/processed/wigley_species_bodymass_spectra.csv")) 
+finfish_lenspectra <- read_csv(
+  here::here("Data/processed/finfish_length_spectra.csv"))
+
+
+
+# Join them together
+spectra_results <- bind_rows(
+   list(
+     "length_spectra" = wigley_lenspectra,
+    "bodymass_spectra" =  wigley_bmspectra), 
+   .id = "metric") %>% 
+  mutate(community = "Wigley Subset") %>% 
+  bind_rows(mutate(
+    finfish_lenspectra,
+    metric = "length_spectra",
+    community = "Finfish Community")) %>% 
+  mutate(
+    survey_area = fct_relevel(survey_area, area_levels),
+    metric = fct_rev(metric))
+
+
+
+# Left side:
+# All species  species length spectrum 
+# color = season vs. annual
+# facet_wrap(~survey_area)
+
+# Right side:
+# Wigley species biomass spectrum
+# color = season vs. annual
+# facet_wrap(~survey_area)
+
+
+# Model significant trends separately
+# Year as RE
+lspectra_mod_ffish <- lmer(
+  formula = b ~ est_year * survey_area * season + (1|est_year),
+  data = finfish_lenspectra)
+lspectra_mod_wig <- lmer(
+  formula = b ~ est_year * survey_area * season + (1|est_year),
+  data = wigley_lenspectra)
+bmspectra_mod_wig <- lmer(
+  formula = b ~ est_year * survey_area * season + (1|est_year),
+  data = wigley_bmspectra)
+
+
+
+# Function to get the Predictions
+# Drop effect fits that are non-significant  ###
+get_preds_and_trendsignif <- function(mod_x){
+  modx_preds <- as.data.frame(
+    # Model predictions
+    ggpredict(
+      mod_x, 
+      terms = ~ est_year * survey_area * season) ) %>% 
+    mutate(
+      survey_area = factor(group, levels = area_levels),
+      season = factor(facet, levels = c("Spring", "Fall")))
+  
+    # Just survey area and year
+    modx_emtrend <- emtrends(
+      object = mod_x,
+      specs =  ~ survey_area*season,
+      var = "est_year") %>% 
+      as_tibble() %>% 
+      mutate(
+        zero = 0,
+        non_zero = if_else(between(zero, lower.CL, upper.CL), F, T))
+  
+    # Preds with signif
+    modx_preds %>% left_join(select(modx_emtrend, survey_area, season, non_zero))
+  
+}
+
+
+
+# Get the predictions and flag whether they are significant
+trend_predictions <- bind_rows(list(
+  "length_spectra-Finfish Community" = get_preds_and_trendsignif(lspectra_mod_ffish),
+  "length_spectra-Wigley Subset" = get_preds_and_trendsignif(lspectra_mod_wig),
+  "bodymass_spectra-Wigley Subset" = get_preds_and_trendsignif(bmspectra_mod_wig)
+  ), .id = "model_id") %>% 
+  separate(model_id, into = c("metric", "community"), sep = "-") %>% 
+  mutate(metric = fct_rev(metric))
+
+
+
+
+
+# Plot over observed data
+# Contrast seasonal differences
+
+
+
+
+# Make the plot
+ ggplot() +
+   geom_ribbon(
+    data = filter(trend_predictions, non_zero == TRUE),
+    aes(x, ymin = conf.low, ymax = conf.high, fill = season),
+    linewidth = 1, alpha = 0.35) +
+  geom_point(
+    data = spectra_results,
+    aes(est_year, b, color = season),
+    size = 0.8, alpha = 0.5) +
+  geom_line(
+    data = filter(trend_predictions, non_zero == TRUE),
+    aes(x, predicted, color = season),
+    linewidth = 1, alpha = 1) +
+  scale_fill_gmri() +
+  scale_color_gmri() +
+  facet_grid(survey_area ~ metric*community) +
+  labs(
+    x = "Year",
+    y = "Exponent of Size Spectra")
+ 
+
+```
+
+
+I also think it would be valuable to build out the story of size change further, so am thinking that plots like those of average (or median) length (all species) and weight (wigley species) for NES and the sub-regions, like those on p. 12 of the attached file above (the very first draft from late 2022) would be useful.  
+
+# To-Do
+
+add significant trends to these
+
+```{r}
+#| label: length changes
+
+
+# Load the median weight/length data
+wigley_size_df <- read_csv(here::here("Data/processed/wigley_species_size_summary.csv"))
+finfish_size_df <- read_csv(here::here("Data/processed/finfish_species_length_summary.csv"))
+
+
+# Join them
+size_results <- bind_rows(
+  list(
+    "Finfish Community" = finfish_size_df,
+    "Wigley Subset" = wigley_size_df), 
+  .id = "community"
+)
+
+
+
+
+# Get trends:
+len_mod_ffish <- lmer(
+  formula = med_len_cm ~ est_year * survey_area * season + (1|est_year),
+  data = finfish_size_df)
+len_mod_wig <- lmer(
+  formula = med_len_cm ~ est_year * survey_area * season + (1|est_year),
+  data = wigley_size_df)
+wt_mod_wig <- lmer(
+  formula = med_wt_kg ~ est_year * survey_area * season + (1|est_year),
+  data = drop_na(wigley_size_df, med_wt_kg))
+
+
+
+# Get the predictions and flag whether they are significant
+size_trend_predictions <- bind_rows(list(
+  "med_len_cm-Finfish Community" = get_preds_and_trendsignif(len_mod_ffish),
+  "med_len_cm-Wigley Subset"     = get_preds_and_trendsignif(len_mod_wig),
+  "med_wt_kg-Wigley Subset"   = get_preds_and_trendsignif(wt_mod_wig)
+  ), .id = "model_id") %>% 
+  separate(model_id, into = c("metric", "community"), sep = "-") %>% 
+  mutate(metric = fct_rev(metric))
+
+
+
+
+
+
+# Left side: 
+# Median length - all species
+# color = season vs. annual
+# facet_wrap(~survey_area)
+
+
+size_long <- size_results %>% 
+  pivot_longer(cols = c(med_len_cm, med_wt_kg), 
+               names_to = "metric", 
+               values_to = "val")  %>% 
+  mutate(survey_area = fct_relevel(survey_area, area_levels),
+         season = fct_rev(season))
+
+
+# just length for scales
+len_plot <-  size_long %>% 
+  filter(metric == "med_len_cm") %>% 
+  drop_na(val) %>% 
+  ggplot() +
+  geom_ribbon(
+    data = filter(size_trend_predictions, metric == "med_len_cm", non_zero == TRUE),
+    aes(x, ymin = conf.low, ymax = conf.high, fill = season),
+    linewidth = 1, alpha = 0.35) +
+  geom_point(
+    #data = filter(size_long, metric == "med_len_cm"),
+    aes(est_year, val, color = season),
+    size = 0.8, alpha = 0.5) +
+  geom_line(
+    data = filter(size_trend_predictions, metric == "med_len_cm", non_zero == TRUE),
+    aes(x, predicted, color = season),
+    linewidth = 1, alpha = 1) +
+  scale_fill_gmri() +
+  scale_color_gmri() +
+  facet_grid(survey_area ~ metric*community,
+             scales = "free") +
+  labs(
+    x = "Year",
+    y = "Length (cm)")
+
+# Right: 
+# Median weight - wigley species
+# color = season vs. annual
+# facet_wrap(~survey_area)
+
+# weight plots
+wt_plot <- size_long %>% 
+  filter(metric == "med_wt_kg") %>% 
+  drop_na(val) %>% 
+  ggplot() +
+  geom_ribbon(
+    data = filter(size_trend_predictions, metric == "med_wt_kg", non_zero == TRUE),
+    aes(x, ymin = conf.low, ymax = conf.high, fill = season),
+    linewidth = 1, alpha = 0.35) +
+  geom_point(
+    #data = filter(size_long, metric == "med_len_cm"),
+    aes(est_year, val, color = season),
+    size = 0.8, alpha = 0.5) +
+  geom_line(
+    data = filter(size_trend_predictions, metric == "med_wt_kg", non_zero == TRUE),
+    aes(x, predicted, color = season),
+    linewidth = 1, alpha = 1) +
+  scale_fill_gmri() +
+  scale_color_gmri() +
+  facet_grid(survey_area ~ metric*community,
+             scales = "free")  +
+  labs(
+    x = "Year",
+    y = "Weight (kg)")
+
+(len_plot | wt_plot) + plot_layout(guides = "collect") & theme(legend.position = "bottom")
+
+```
+
+Couple things have started to catch my eye the more I've thought about volatility in these numbers. There seem to be two situations happening on occassion. The first is more common in GOM+GB, and that is a 5-10cm drop in median length. This sudden drop in size I am imagining is likely due to surges in new recruits.
+
+The other patttern which is more common in MAB but looks like it happens a handful of times in GB is the reverse situation, where median size surges upward in isolated years. For these situations I think we likely could trace these down to exceptionally high catches of larger species like elasmobranchs.
+
+
+## Summary of Trends
+
+
+Let's start with these pieces, and we can then discuss doing something with the extremes of the size distribution--changes in small vs. large individuals, where we pre-define size bins as you've done in slides 7 and 8, or perhaps using an approach similar to Lora's approach of defining the upper/lower percentiles of size.
+
+Hope this sounds good as some first steps towards shaping out the results section.  And I hope once we see these, we can iterate forward to next steps pretty quickly.
+
+
+### Initial Thoughts
+
+Our hypotheses both relate primarily to abundance of non-age0 fishes. It might make sense to move the minimum size up to something larger. This will accomplish two things: 1) lower any noise in median size or spectra slope that results from large recruit cohorts & 2) help ensure that the size range we're estimating spectra for are fully selected by the gear.
+
+Currently a 1g minimum size is likely lower than the mesh size selectivity. 
+
+The following plot shows what the distriution looks like for all data (years, seasons, areas) over the range of sizes we are allowing to contribute to the estimation of seasonal spectra. I've highlighted where a minimum body size of 1g sits on this curve to mark where it sits.
+
+```{r}
+# Data used for Wigley estimates
+wigley_in <- read_csv(here::here("Data/processed/wigley_species_trawl_data.csv"))
+```
+
+
+```{r}
+# Broad Distribution
+#log2 bins bor easy-of-access
+#' @title Build Log 2 Bin Structure Dataframe
+#' 
+#' @description Used to build a dataframe containing equally spaced log2 bins for
+#' size spectra analysis. Contains details on the left and right limits, midpoint, bin width, 
+#' and a text label for the bins. log2bin number ascends with increasing size for eeasy plotting.
+#'
+#' @param log2_min 
+#' @param log2_max 
+#' @param log2_increment 
+#'
+#' @return
+#' @export
+#'
+#' @examples
+define_log2_bins <- function(log2_min = 0, log2_max = 13, log2_increment = 1){
+  
+  # How many bins
+  n_bins  <- length(seq(log2_max, log2_min + log2_increment, by = -log2_increment))
+  
+  # Build Equally spaced log2 bin df
+  log2_bin_structure <- data.frame(
+    "log2_bins" = as.character(seq(n_bins, 1, by = -1)),
+    "left_lim"  = seq(log2_max - log2_increment, log2_min, by = -log2_increment),
+    "right_lim" = seq(log2_max, log2_min + log2_increment, by = -log2_increment)) %>% 
+    mutate(
+      bin_label    = str_c(round(2^left_lim, 3), " - ", round(2^right_lim, 3), "g"),
+      bin_width    = 2^right_lim - 2^left_lim,
+      bin_midpoint = (2^right_lim + 2^left_lim) / 2) %>% 
+    arrange(left_lim)
+  
+  return(log2_bin_structure)
+}
+```
+
+```{r}
+#' @title Assign Manual log2 Bodymass Bins
+#'
+#' @description Manually assign log2 bins based on individual length-weight bodymass 
+#' in increments of 1 on the log2 scale. Returns data with bins assigned based on individual
+#' length-weight biomass
+#' 
+#' Uses maximum weight, and its corresponding bin as the limit.
+#'
+#' @param wmin_grams Catch data prepared for mle calculation, use prep_wmin_wmax
+#' @param log2_increment Equally spaced increments to use for log 2 bin sizes. Default = 0.5.
+#'
+#' @return
+#' @export
+#'
+#' @examples
+assign_log2_bins <- function(wmin_grams, log2_increment = 1){
+  
+  
+  #### 1. Set up bodymass bins
+  
+  # filter missing weights
+  size_data <- wmin_grams %>% 
+    filter(wmin_g > 0,
+           is.na(wmin_g) == FALSE,
+           wmax_g > 0,
+           is.na(wmax_g) == FALSE)
+  
+  # Get bodymass on log2() scale
+  size_data$log2_weight <- log2(size_data$ind_weight_g)
+  
+  # Set up the bins - Pull min and max weights from data available
+  #min_bin <- floor(min(size_data$log2_weight))
+  min_bin <- 0
+  max_bin <- ceiling(max(size_data$log2_weight))
+  
+  
+  # Build a bin key, could be used to clean up the incremental assignment or for apply style functions
+  log2_bin_structure <- define_log2_bins(
+    log2_min = min_bin, 
+    log2_max = max_bin, 
+    log2_increment = log2_increment)
+  
+  
+  
+  # Loop through bins to assign the bin details to the data
+  log2_assigned <- log2_bin_structure %>%
+    split(.$log2_bins) %>%
+    map_dfr(function(log2_bin){
+      
+      # limits and labels
+      l_lim   <- log2_bin$left_lim
+      r_lim   <- log2_bin$right_lim
+      bin_num <- as.character(log2_bin$log2_bin)
+      
+      # assign the label to the appropriate bodymasses
+      size_data %>% mutate(
+        log2_bins = ifelse( between(log2_weight, l_lim, r_lim), bin_num, NA),
+        log2_bins = as.character(log2_bins)) %>%
+        drop_na(log2_bins)
+      
+    })
+  
+  # Join in the size bins
+  log2_assigned <- left_join(log2_assigned, log2_bin_structure, by = "log2_bins")
+  
+  # return the data with the bins assigned
+  return(log2_assigned)
+  
+}
+```
+
+```{r}
+#' @title Calculate Normalized and De-Normalized Abundances
+#'
+#' @description For binned size spectra estimation we use the stratified abundance divided by the
+#' bin widths (normalized size spectra). Another way to present the data is to de-normalize, which 
+#' takes those values and multiplies them by the mid-point of the log-scale bins.
+#' 
+#' min/max & bin_increments are used to enforce the presence of a size bin in the event that 
+#' there is no abundance. This is done for comparing across different groups/areas that should 
+#' conceivably have the same size range sampled.
+#'
+#' @param log2_assigned size data containing the bin assignments to use
+#' @param min_log2_bin Minimum 2^x value for the size spectra being measured (>=)
+#' @param max_log2_bin Maximum 2^x value for the size spectra being measured (<)
+#' @param bin_increment The bin-width on log scale that separates each bin
+#' @param ... Additional grouping factors with which to aggregate on besides the size bins themselves
+#'
+#' @return
+#' @export
+#'
+#' @examples
+aggregate_log2_bins <- function(
+    log2_assigned, 
+    min_log2_bin = 0, 
+    max_log2_bin = 13, 
+    bin_increment = 1,
+    ...){
+  
+  # Full Possible Bin Structure
+  # Fills in any gaps
+  log2_bin_structure <- define_log2_bins(
+    log2_min       = min_log2_bin, 
+    log2_max       = max_log2_bin, 
+    log2_increment = bin_increment)
+  
+  
+  # Capture all the group levels with a cheeky expand()
+  if(missing(...) == FALSE){
+    log2_bin_structure <- log2_bin_structure %>% 
+      tidyr::expand(left_lim, distinct(log2_assigned, ...)) %>% 
+      full_join(log2_bin_structure)
+  }
+  
+  
+  
+  # Get bin breaks
+  log2_breaks <- sort(
+    unique(c(log2_bin_structure$left_lim, log2_bin_structure$right_lim)))
+  
+  
+  # Get Totals for bodymass and abundances
+  log2_aggregates <- log2_assigned %>% 
+    group_by(left_lim, ...) %>% 
+    summarise(abundance   = sum(numlen_adj, na.rm = T),
+              weight_g    = sum(wmin_g, na.rm = T),
+              .groups = "drop")
+  
+  
+  # Join back in what the limits and labels are
+  # The defined bins and their labels enforce the size limits
+  log2_prepped <- left_join(
+    x = log2_bin_structure, 
+    y = log2_aggregates)
+  
+  
+  #### Fill Gaps with Zero's?? 
+  # This ensures that any size bin that is intended to be in use is actually used
+  log2_prepped <- log2_prepped %>% 
+    mutate(
+      abundance = ifelse(is.na(abundance), 1, abundance),
+      weight_g = ifelse(is.na(weight_g), 1, weight_g))
+  
+  
+  #### normalize abundances using the bin widths
+  log2_prepped <- log2_prepped %>% 
+    mutate(
+      normalized_abund = abundance / bin_width,
+      normalized_biom = weight_g / bin_width,
+      # # Remove Bins Where Normalized Biomass < 0? No!
+      # normalized_abund = ifelse(normalized_abund < 2^0, NA, normalized_abund),
+      # norm_strat_abund = ifelse(norm_strat_abund < 2^0, NA, norm_strat_abund)
+    )
+  
+  # Add de-normalized abundances (abundance * bin midpoint)
+  log2_prepped <- log2_prepped %>% 
+    mutate(
+      denorm_abund = normalized_abund * bin_midpoint,
+      denorm_biom = normalized_biom * bin_midpoint)
+  
+  # Return the aggregations
+  return(log2_prepped)
+  
+}
+
+```
+
+
+
+```{r}
+#| label: perform assignment
+
+# Assign l10 bins
+wigley_log2 <- assign_log2_bins(wigley_in, log2_increment = 1)
+
+# Aggregate on year, area, season
+wigley_all_aggs <- wigley_log2 %>% 
+  aggregate_log2_bins(
+    .,
+    min_l10_bin = 0, 
+    max_l10_bin = 10, 
+    bin_increment = 1)
+
+# Plot
+ggplot(wigley_all_aggs, aes(2^left_lim, normalized_abund)) +
+  geom_col() +
+  geom_vline(xintercept = 1, linetype = 2, color = "red", linewidth = 1) +
+  geom_label(
+      data = data.frame(val = 1, label = "Current\nMinimum\nSize\nCutoff:\n1g"), 
+      aes(x = val, y = I(0.5), label = label), 
+      color = "red", label.size = 1,
+      label.padding = unit(0.7, "lines"), label.r = unit(0.5, "lines")) +
+  geom_vline(xintercept = 2^4, linetype = 2, color = "royalblue", linewidth = 1) +
+  geom_label(
+      data = data.frame(val = 2^4, label = "More\nLikely\nFully\nSelected:\n16g"), 
+      aes(x = val, y = I(0.5), label = label), 
+      color = "royalblue", label.size = 1,
+      label.padding = unit(0.7, "lines"), label.r = unit(0.5, "lines")) +
+  scale_x_continuous(labels = label_log(base = 2), transform = "log2", breaks = 2^c(0:12)) +
+  scale_y_continuous(labels = label_log(base = 2), transform = "log2") +
+  labs(
+    x = "Individual Body Weight (g)",
+    y = "Normalized Abundance\n(total abundance / bin width)",
+  title = "All-year, all-season size spectrum for Wigley Species Subset",
+  subtitle = "Log2 bins used to visualize the")
+  
+
+```
+
+I picked 16g here basically eyeballing things, but my point is mostly that I think there is a need and an advantage to shifting the minimum size.
+
+We could probably be more scientific and look at the mesh size used, but I think precision there is less important that being closer than we are now.
+
+## What if we shift it?
+
+I'm just going to go ahead and do it and see
+
+```{r}
+
+# Load processing functions
+source(here::here("Code/R/Processing_Functions.R"))
+
+```
+
+
+```{r}
+
+```
+
