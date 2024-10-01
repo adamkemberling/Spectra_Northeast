@@ -19,7 +19,6 @@ editor: source
 
 ```{r}
 # Libraries
-library(raster)
 library(tidyverse)
 library(gmRi)
 library(rnaturalearth)
@@ -69,6 +68,16 @@ I'd like for us to start by rebuilding the story of how the size structure has c
 As such, I would like for us to look at plots of the size spectrum slope for (1) the all-species length spectrum and (2) the Wigley species biomass spectrum from annual, seasonal and regional perspectives.  
 
 I am thinking this would be two panel plots (all-spp length, Wigley-spp biomass) with 5 subpanels each (NES, GOM, GB, SNE, MAB) that are set up to show lines by seasonal and annual time steps, much like the plot on the right of slide 7 in your most recent slide deck...except with NES added and an annual line added.  Keeping the significant trend lines in is helpful.  This is the first step, so when you have that ready, please share it with the group.
+
+
+
+```{r}
+#| label: load input data
+
+
+# Data used for Wigley estimates
+wigley_in <- read_csv(here::here("Data/processed/wigley_species_trawl_data.csv"))
+```
 
 
 ```{r}
@@ -337,6 +346,79 @@ Let's start with these pieces, and we can then discuss doing something with the 
 Hope this sounds good as some first steps towards shaping out the results section.  And I hope once we see these, we can iterate forward to next steps pretty quickly.
 
 
+
+ 
+### Spiny Dogfish Sensitivity
+
+How much can one species shift the spectra
+
+```{r}
+#| eval: false
+#| label: spiny dogfish spectra
+
+
+
+# # Run MAB with and without spiny dogfish
+# # Run the year, season, area fits for the filtered data
+# no_dogs_bmspectra <- group_binspecies_spectra(
+#   ss_input = filter(wigley_in, comname != "spiny dogfish"),
+#   grouping_vars = c("est_year", "season", "survey_area"),
+#   abundance_vals = "numlen_adj",
+#   length_vals = "length_cm",
+#   use_weight = TRUE,
+#   isd_xmin = 1,
+#   global_min = TRUE,
+#   isd_xmax = NULL,
+#   global_max = FALSE,
+#   bin_width = 1,
+#   vdiff = 2)
+
+# # Save those
+# write_csv(
+#   no_dogs_bmspectra,
+#   here::here("Data/processed/wigley_species_nodogfish_bmspectra.csv"))
+```
+
+
+```{r}
+# Read them in, do some plotting
+no_dogs_bmspectra <- read_csv(
+  here::here("Data/processed/wigley_species_nodogfish_bmspectra.csv")) %>% 
+  mutate(survey_area = factor(survey_area, levels = area_levels))
+
+
+# Format a little
+no_dogs_bmspectra <- no_dogs_bmspectra %>% 
+  mutate(est_year = as.numeric(est_year))
+
+
+
+# Plot the differences
+ggplot() +
+  geom_line(
+    data = no_dogs_bmspectra,
+    aes(est_year, b, color = "Wigley, No Spiny Dogfish")) +
+  geom_line(
+    data = mutate(wigley_bmspectra, survey_area = factor(survey_area, levels = area_levels)),
+    aes(est_year, b, color = "All Wigley Species")) +
+  scale_color_brewer(palette = "Set1") +
+  facet_grid(survey_area~fct_rev(season)) +
+  labs(x = "Year",
+       y = "Exponent of Size Spectra",
+       title = "Shift in Spectra with Exclusion of Spiny Dogfish")
+
+
+```
+
+
+
+
+
+
+__________________
+
+# Distractions
+
 ### Initial Thoughts I'd like to Discuss
 
 Our hypotheses both relate primarily to abundance of non-age0 fishes. It might make sense to move the minimum size up to something larger. This will accomplish two things: 1) lower any noise in median size or spectra slope that results from large recruit cohorts & 2) help ensure that the size range we're estimating spectra for are fully selected by the gear.
@@ -345,10 +427,13 @@ Currently a 1g minimum size is likely lower than the mesh size selectivity.
 
 The following plot shows what the distriution looks like for all data (years, seasons, areas) over the range of sizes we are allowing to contribute to the estimation of seasonal spectra. I've highlighted where a minimum body size of 1g sits on this curve to mark where it sits.
 
-```{r}
-# Data used for Wigley estimates
-wigley_in <- read_csv(here::here("Data/processed/wigley_species_trawl_data.csv"))
-```
+## Is it even Pareto?
+
+It is quite a pain to determine whether the data follow a pareto distribution in the first place. I'm unsure if the lines in the plots below faithfully follow how they are estimated and how to score goodness of fit for a probability density function. 
+
+> The MLE method avoids binning and regression. Binning in general can be problematic (e.g. if a data set has no body masses <10 g but the lowest bin is defined as 8–16 g), and the choice of bin widths can affect the estimated slope (Vidondo et al. 1997). Regression-based methods are problematic because the intercept and the slope implicitly determine urn:x-wiley:2041210X:media:mee312641:mee312641-math-0064, which can erroneously be greater than some data values (James, Plank & Edwards 2011). They also assume that the errors in the logarithmic counts for each bin have the same variance, which may not be justified. Although regression can be understood in a likelihood context, this is different to explicitly using a likelihood-based method (Edwards et al. 2012).
+
+After doing some attempts to plot the impacts of moving it around, I am less convinced that its helping things and it may even be harming the situation. 
 
 
 ```{r}
@@ -729,76 +814,9 @@ wigley_trends_1g <- ggplot() +
 (wigley_trends_1g | spectra_trends_16g) + plot_layout(guides = "collect") & theme(legend.position = "bottom")
 ```
 
-### Spiny Dogfish Sensitivity
-
-How much can one species shift the spectra
-
-```{r}
-#| eval: false
-#| label: spiny dogfish spectra
 
 
 
-# # Run MAB with and without spiny dogfish
-# # Run the year, season, area fits for the filtered data
-# no_dogs_bmspectra <- group_binspecies_spectra(
-#   ss_input = filter(wigley_in, comname != "spiny dogfish"),
-#   grouping_vars = c("est_year", "season", "survey_area"),
-#   abundance_vals = "numlen_adj",
-#   length_vals = "length_cm",
-#   use_weight = TRUE,
-#   isd_xmin = 1,
-#   global_min = TRUE,
-#   isd_xmax = NULL,
-#   global_max = FALSE,
-#   bin_width = 1,
-#   vdiff = 2)
-
-# # Save those
-# write_csv(
-#   no_dogs_bmspectra,
-#   here::here("Data/processed/wigley_species_nodogfish_bmspectra.csv"))
-```
-
-
-```{r}
-# Read them in, do some plotting
-no_dogs_bmspectra <- read_csv(
-  here::here("Data/processed/wigley_species_nodogfish_bmspectra.csv")) %>% 
-  mutate(survey_area = factor(survey_area, levels = area_levels))
-
-
-# Format a little
-no_dogs_bmspectra <- no_dogs_bmspectra %>% 
-  mutate(est_year = as.numeric(est_year))
-
-
-
-# Plot the differences
-ggplot() +
-  geom_line(
-    data = no_dogs_bmspectra,
-    aes(est_year, b, color = "Wigley, No Spiny Dogfish")) +
-  geom_line(
-    data = mutate(wigley_bmspectra, survey_area = factor(survey_area, levels = area_levels)),
-    aes(est_year, b, color = "All Wigley Species")) +
-  scale_color_brewer(palette = "Set1") +
-  facet_grid(survey_area~fct_rev(season)) +
-  labs(x = "Year",
-       y = "Exponent of Size Spectra",
-       title = "Shift in Spectra with Exclusion of Spiny Dogfish")
-
-
-```
-
-
-
-
-## Is it even Pareto?
-
-It is quite a pain to determine whether the data follow a pareto distribution in the first place. I'm unsure if the lines in the plots below faithfully follow how they are estimated and how to score goodness of fit for a probability density function. 
-
-> The MLE method avoids binning and regression. Binning in general can be problematic (e.g. if a data set has no body masses <10 g but the lowest bin is defined as 8–16 g), and the choice of bin widths can affect the estimated slope (Vidondo et al. 1997). Regression-based methods are problematic because the intercept and the slope implicitly determine urn:x-wiley:2041210X:media:mee312641:mee312641-math-0064, which can erroneously be greater than some data values (James, Plank & Edwards 2011). They also assume that the errors in the logarithmic counts for each bin have the same variance, which may not be justified. Although regression can be understood in a likelihood context, this is different to explicitly using a likelihood-based method (Edwards et al. 2012).
 
 ```{r}
 #| label: testing-pareto-fits
