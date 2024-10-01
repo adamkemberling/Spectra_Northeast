@@ -8,6 +8,8 @@ format:
     self-contained: true
 execute:
   echo: false
+  fig-width: 6
+  fig-height: 6
   message: false
   warning: false
 editor: source
@@ -40,7 +42,8 @@ theme_set(
   theme_gmri(
     rect = element_rect(fill = "white", color = NA), 
     strip.text.y = element_text(angle  = 0),
-    axis.text.x = element_text(size = 8)))
+    axis.text.x = element_text(size = 8),
+    legend.position = "bottom"))
 
 # vectors for factor levels
 area_levels <- c("GoM", "GB", "SNE", "MAB")
@@ -66,8 +69,6 @@ I'd like for us to start by rebuilding the story of how the size structure has c
 As such, I would like for us to look at plots of the size spectrum slope for (1) the all-species length spectrum and (2) the Wigley species biomass spectrum from annual, seasonal and regional perspectives.  
 
 I am thinking this would be two panel plots (all-spp length, Wigley-spp biomass) with 5 subpanels each (NES, GOM, GB, SNE, MAB) that are set up to show lines by seasonal and annual time steps, much like the plot on the right of slide 7 in your most recent slide deck...except with NES added and an annual line added.  Keeping the significant trend lines in is helpful.  This is the first step, so when you have that ready, please share it with the group.
-
-# To do: add significant trends to these
 
 
 ```{r}
@@ -174,7 +175,7 @@ trend_predictions <- bind_rows(list(
 
 
 # Make the plot
- ggplot() +
+spectra_trends_1g <- ggplot() +
    geom_ribbon(
     data = filter(trend_predictions, non_zero == TRUE),
     aes(x, ymin = conf.low, ymax = conf.high, fill = season),
@@ -195,14 +196,13 @@ trend_predictions <- bind_rows(list(
     y = "Exponent of Size Spectra")
  
 
+spectra_trends_1g
+
 ```
 
 
 I also think it would be valuable to build out the story of size change further, so am thinking that plots like those of average (or median) length (all species) and weight (wigley species) for NES and the sub-regions, like those on p. 12 of the attached file above (the very first draft from late 2022) would be useful.  
 
-# To-Do
-
-add significant trends to these
 
 ```{r}
 #| label: length changes
@@ -337,7 +337,7 @@ Let's start with these pieces, and we can then discuss doing something with the 
 Hope this sounds good as some first steps towards shaping out the results section.  And I hope once we see these, we can iterate forward to next steps pretty quickly.
 
 
-### Initial Thoughts
+### Initial Thoughts I'd like to Discuss
 
 Our hypotheses both relate primarily to abundance of non-age0 fishes. It might make sense to move the minimum size up to something larger. This will accomplish two things: 1) lower any noise in median size or spectra slope that results from large recruit cohorts & 2) help ensure that the size range we're estimating spectra for are fully selected by the gear.
 
@@ -559,7 +559,7 @@ aggregate_log2_bins <- function(
 
 
 ```{r}
-#| label: perform assignment
+#| label: body weight binned overall
 
 # Assign l10 bins
 wigley_log2 <- assign_log2_bins(wigley_in, log2_increment = 1)
@@ -592,29 +592,810 @@ ggplot(wigley_all_aggs, aes(2^left_lim, normalized_abund)) +
   labs(
     x = "Individual Body Weight (g)",
     y = "Normalized Abundance\n(total abundance / bin width)",
-  title = "All-year, all-season size spectrum for Wigley Species Subset",
-  subtitle = "Log2 bins used to visualize the")
+  title = "All-year, all-season size spectrum for Wigley Species Subset")
   
 
 ```
 
-I picked 16g here basically eyeballing things, but my point is mostly that I think there is a need and an advantage to shifting the minimum size.
+I picked 16g here basically eyeballing things, but my point is mostly that I think there is a need and an advantage to shifting the minimum size. There is a similar lack of tuning for minimum length as well.
+
 
 We could probably be more scientific and look at the mesh size used, but I think precision there is less important that being closer than we are now.
+
+For maximum size we presently take the maximum individual size in that area-year-season unit. While this also affects the distribution shape I am less concerned with this for now.
+
 
 ## What if we shift it?
 
 I'm just going to go ahead and do it and see
 
 ```{r}
+#| eval: false
+#| label: refit spectra for 16g minimum
 
 # Load processing functions
+#remotes::install_github("andrew-edwards/sizeSpectra")
+library(sizeSpectra)
 source(here::here("Code/R/Processing_Functions.R"))
+
+
+# Run the year, season, area fits for the filtered data
+wigley_bmspectra_16 <- group_binspecies_spectra(
+  ss_input = filter(wigley_in, wmin_g >=16),
+  grouping_vars = c("est_year", "season", "survey_area"),
+  abundance_vals = "numlen_adj",
+  length_vals = "length_cm",
+  use_weight = TRUE,
+  isd_xmin = 16,
+  global_min = TRUE,
+  isd_xmax = NULL,
+  global_max = FALSE,
+  bin_width = 1,
+  vdiff = 2)
+
+# # Save those
+# write_csv(
+#   wigley_bmspectra_16,
+#   here::here("Data/processed/wigley_species_min16_bodymass_spectra.csv"))
+```
+
+
+```{r}
+# Read them in, do some plotting
+wigley_bmspectra_16 <- read_csv(
+  here::here("Data/processed/wigley_species_min16_bodymass_spectra.csv")) %>% 
+  mutate(survey_area = fct_relevel(survey_area, area_levels))
 
 ```
 
 
 ```{r}
 
+# Model signigicant trends
+bmspectra_16g_mod_wig <- lmer(
+  formula = b ~ est_year * survey_area * season + (1|est_year),
+  data = wigley_bmspectra_16)
+
+
+
+
+# Get the predictions and flag whether they are significant
+trend_predictions_16g <- get_preds_and_trendsignif(bmspectra_16g_mod_wig) %>% 
+  mutate(model_id = "bodymass_spectra-Wigley Subset, 16g min") %>% 
+  separate(model_id, into = c("metric", "community"), sep = "-") %>% 
+  mutate(metric = fct_rev(metric),
+         survey_area = fct_relevel(survey_area, area_levels))
+
+
+
+
+
+# Plot significant trends over observed data
+
+# Make the plot
+ spectra_trends_16g <- ggplot() +
+   geom_ribbon(
+    data = filter(trend_predictions_16g, non_zero == TRUE),
+    aes(x, ymin = conf.low, ymax = conf.high, fill = season),
+    linewidth = 1, alpha = 0.35) +
+  geom_point(
+    data = wigley_bmspectra_16,
+    aes(est_year, b, color = season),
+    size = 0.8, alpha = 0.5) +
+  geom_line(
+    data = filter(trend_predictions_16g, non_zero == TRUE),
+    aes(x, predicted, color = season),
+    linewidth = 1, alpha = 1) +
+  scale_fill_gmri() +
+  scale_color_gmri() +
+   scale_y_continuous(limits = c(-2.5, -0.8)) +
+  facet_grid(survey_area ~ metric*community) +
+  labs(
+    x = "Year",
+    y = "Exponent of Size Spectra")
+ 
+ 
+ 
+# Compare to previous
+ # Make the plot
+wigley_trends_1g <- ggplot() +
+   geom_ribbon(
+    data = filter(trend_predictions, 
+                  metric == "bodymass_spectra",
+                  non_zero == TRUE),
+    aes(x, ymin = conf.low, ymax = conf.high, fill = season),
+    linewidth = 1, alpha = 0.35) +
+  geom_point(
+    data = filter(spectra_results, metric == "bodymass_spectra"),
+    aes(est_year, b, color = season),
+    size = 0.8, alpha = 0.5) +
+  geom_line(
+    data = filter(trend_predictions, 
+                  metric == "bodymass_spectra",
+                  non_zero == TRUE),
+    aes(x, predicted, color = season),
+    linewidth = 1, alpha = 1) +
+  scale_fill_gmri() +
+  scale_color_gmri() +
+  scale_y_continuous(limits = c(-2.5, -0.8)) +
+  facet_grid(survey_area ~ metric*community) +
+  labs(
+    x = "Year",
+    y = "Exponent of Size Spectra")
+ 
+
+
+ 
+(wigley_trends_1g | spectra_trends_16g) + plot_layout(guides = "collect") & theme(legend.position = "bottom")
 ```
+
+### Spiny Dogfish Sensitivity
+
+How much can one species shift the spectra
+
+```{r}
+#| eval: false
+#| label: spiny dogfish spectra
+
+
+
+# # Run MAB with and without spiny dogfish
+# # Run the year, season, area fits for the filtered data
+# no_dogs_bmspectra <- group_binspecies_spectra(
+#   ss_input = filter(wigley_in, comname != "spiny dogfish"),
+#   grouping_vars = c("est_year", "season", "survey_area"),
+#   abundance_vals = "numlen_adj",
+#   length_vals = "length_cm",
+#   use_weight = TRUE,
+#   isd_xmin = 1,
+#   global_min = TRUE,
+#   isd_xmax = NULL,
+#   global_max = FALSE,
+#   bin_width = 1,
+#   vdiff = 2)
+
+# # Save those
+# write_csv(
+#   no_dogs_bmspectra,
+#   here::here("Data/processed/wigley_species_nodogfish_bmspectra.csv"))
+```
+
+
+```{r}
+# Read them in, do some plotting
+no_dogs_bmspectra <- read_csv(
+  here::here("Data/processed/wigley_species_nodogfish_bmspectra.csv")) %>% 
+  mutate(survey_area = factor(survey_area, levels = area_levels))
+
+
+# Format a little
+no_dogs_bmspectra <- no_dogs_bmspectra %>% 
+  mutate(est_year = as.numeric(est_year))
+
+
+
+# Plot the differences
+ggplot() +
+  geom_line(
+    data = no_dogs_bmspectra,
+    aes(est_year, b, color = "Wigley, No Spiny Dogfish")) +
+  geom_line(
+    data = mutate(wigley_bmspectra, survey_area = factor(survey_area, levels = area_levels)),
+    aes(est_year, b, color = "All Wigley Species")) +
+  scale_color_brewer(palette = "Set1") +
+  facet_grid(survey_area~fct_rev(season)) +
+  labs(x = "Year",
+       y = "Exponent of Size Spectra",
+       title = "Shift in Spectra with Exclusion of Spiny Dogfish")
+
+
+```
+
+
+
+
+## Is it even Pareto?
+
+It is quite a pain to determine whether the data follow a pareto distribution in the first place. I'm unsure if the lines in the plots below faithfully follow how they are estimated and how to score goodness of fit for a probability density function. 
+
+> The MLE method avoids binning and regression. Binning in general can be problematic (e.g. if a data set has no body masses <10 g but the lowest bin is defined as 8–16 g), and the choice of bin widths can affect the estimated slope (Vidondo et al. 1997). Regression-based methods are problematic because the intercept and the slope implicitly determine urn:x-wiley:2041210X:media:mee312641:mee312641-math-0064, which can erroneously be greater than some data values (James, Plank & Edwards 2011). They also assume that the errors in the logarithmic counts for each bin have the same variance, which may not be justified. Although regression can be understood in a likelihood context, this is different to explicitly using a likelihood-based method (Edwards et al. 2012).
+
+```{r}
+#| label: testing-pareto-fits
+
+
+# Prepare inputs directly:
+yr_op <- c(2000)
+reg   <- "GoM"
+seas  <- "Spring"
+
+
+# Data for the spectra
+actual_vals_1g <- wigley_in %>%
+  filter(
+    est_year %in% yr_op,
+    survey_area == reg,
+    season == seas,
+    wmin_g >= 1)
+
+actual_vals_16g <- wigley_in %>%
+  filter(
+    est_year %in% yr_op,
+    survey_area == reg,
+    season == seas,
+    wmin_g >= 16)
+```
+
+
+### Sensitivity to minimum size
+
+```{r}
+# Load processing functions
+source(here::here("Code/R/Processing_Functions.R"))
+
+
+# Get the slope over those years
+mle_results_1g <- group_binspecies_spectra(
+    ss_input = actual_vals_1g,
+    grouping_vars = c("est_year", "season", "survey_area"),
+    abundance_vals = "numlen_adj",
+    length_vals = "length_cm",
+    use_weight = FALSE,
+    isd_xmin = 1,
+    global_min = TRUE,
+    isd_xmax = NULL,
+    global_max = FALSE,
+    bin_width = 1,
+    vdiff = 2)
+
+
+
+# and again for 16g
+mle_results_16g <- group_binspecies_spectra(
+    ss_input = actual_vals_16g,
+    grouping_vars = c("est_year", "season", "survey_area"),
+    abundance_vals = "numlen_adj",
+    length_vals = "length_cm",
+    use_weight = FALSE,
+    isd_xmin = 16,
+    global_min = TRUE,
+    isd_xmax = NULL,
+    global_max = FALSE,
+    bin_width = 1,
+    vdiff = 2)
+```
+
+```{r}
+
+
+
+#' @title Individual Size Distribution Plot Prep
+#' 
+#' @description Prepares wmin_grams data to be plotted with the MLE
+#' size spectrum slope fit.
+#'
+#' @param biomass_data Data prepped for mle estimation, use prep_wmin_wmax
+#' @param min_weight_g Minimum weight cutoff to use to match bounded pareto minimum
+#'
+#' @return
+#' @export
+#'
+#' @examples
+isd_plot_prep <- function(
+    biomass_data = databin_split, 
+    min_weight_g = 1){
+  
+  # Arrange by lower weight 
+  biomass_data <- dplyr::arrange(biomass_data, desc(wmin_g)) %>% 
+    select(wmin_g, wmax_g, numlen_adj)
+  
+  # truncate the data to in match the spectra fit
+  biomass_data <- biomass_data %>% 
+    filter(wmin_g >= min_weight_g,
+           wmin_g != 0,
+           is.na(wmin_g) == FALSE,
+           wmax_g != 0,
+           is.na(wmax_g) == FALSE)
+  
+  # Number of fish for the year
+  total_abundance <- sum(biomass_data$numlen_adj)
+  
+  # Have to do not with dplyr:
+  wmin.vec <- biomass_data$wmin_g      # Vector of lower weight bin limits
+  wmax.vec <- biomass_data$wmax_g      # Vector of upper weight bin limits
+  num.vec  <- biomass_data$numlen_adj  # Vector of corresponding counts for those bins
+  
+  # doing it with purr and pmap
+  biomass_bins <- select(biomass_data, wmin_g, wmax_g) %>% 
+    distinct(wmin_g, wmax_g)
+  
+  # Go row-by-row and get how many of any species falls into each
+  # discrete size bin
+  out_data <- pmap_dfr(biomass_bins, function(wmin_g, wmax_g){
+    
+    # 1. Count times wmin.vec >= individual wmin_g, multiply by number of fish for year
+    countGTEwmin <- sum( (wmin.vec >= wmin_g) * num.vec)
+    
+    # 2. Count times wmin.vec >= individual wmax_g, multiply by number of fish for year
+    lowCount <- sum( (wmin.vec >= wmax_g) * num.vec)
+    
+    # 3. Count times wmax.vec > individual wmin_g, multiply by number of fish for year
+    highCount <- sum( (wmax.vec >  wmin_g) * num.vec)
+    
+    # 4. build table
+    out_table <- data.frame(
+      "wmin_g"       = wmin_g,
+      "wmax_g"       = wmax_g,
+      "countGTEwmin" = countGTEwmin,
+      "lowCount"     = lowCount,
+      "highCount"    = highCount
+    )
+  })
+  
+  
+  
+  # return the purr version
+  return(out_data)
+  
+  
+  
+  
+}
+  
+```
+
+::: panel-tabset
+
+#### 1g cutoff
+
+
+```{r}
+
+# Control options
+mle_results <- mle_results_1g
+actual_vals <- actual_vals_1g
+min_used <- 1
+
+
+
+
+#### -- Plpot setup below  ---
+
+
+# Power law parameters and summary details for the group of data:
+b.MLE           <- mle_results$b
+total_abundance <- mle_results$n
+b.confMin       <- mle_results$confMin
+b.confMax       <- mle_results$confMax
+
+# Create range of x values from the group to get power law predictions
+# min and max weights for power law
+xmin  <- min_used
+xmax  <- max(actual_vals$wmin_g)
+
+# Create x values (individual bodymass) to predict across
+# break up the Xlim into pieces between min and max
+x.PLB <- seq(
+  from = xmin,
+  to   = xmax,
+  by = 0.1) 
+
+# get the length of that vector
+x.PLB.length <- length(x.PLB) 
+
+# Y values for plot limits/bounds/predictions from bounded power law pdf
+y.PLB         <- (1 - sizeSpectra::pPLB(
+  x = x.PLB, 
+  b = b.MLE, 
+  xmin = min(x.PLB), 
+  xmax = max(x.PLB))) * total_abundance
+
+y.PLB.confMin <- (1 - sizeSpectra::pPLB(
+  x = x.PLB, 
+  b = b.confMin, 
+  xmin = min(x.PLB), 
+  xmax = max(x.PLB))) * total_abundance
+
+y.PLB.confMax <- (1 - sizeSpectra::pPLB(
+  x = x.PLB, 
+  b = b.confMax, 
+  xmin = min(x.PLB), 
+  xmax = max(x.PLB))) * total_abundance
+
+# Put it in a df to make it easier
+PLB_df <- data.frame(
+  x.PLB   = x.PLB,
+  y.PLB   = y.PLB,
+  confMin = y.PLB.confMin,
+  confMax = y.PLB.confMax) %>%
+  mutate()
+
+
+# 2. solve the power law function again in mutate for residuals
+# need to do it twice for wmin_g and wmax_g
+# Aggregate across overlapping size ranges
+p_prepped <- actual_vals %>%
+  isd_plot_prep(min_weight_g = min_used) %>%
+  left_join(actual_vals) %>%
+  select(comname, wmin_g, wmax_g, lowCount, highCount, countGTEwmin) %>%
+  # Get the residuals
+  mutate(
+    # Estimated Abundance
+    wmin_estimate = (1 - sizeSpectra::pPLB(x = wmin_g, b = b.MLE, xmin = xmin, xmax = xmax)) * total_abundance,
+    wmax_estimate = (1 - sizeSpectra::pPLB(x = wmax_g, b = b.MLE, xmin = xmin, xmax = xmax)) * total_abundance,
+    # Residuals
+    b_resid = countGTEwmin - ((wmin_estimate + wmax_estimate)/2))
+
+
+
+#####  Plotting Raw  ####
+
+# Messing with the plot axes
+fit_1g_gom_2000 <- ggplot() +
+  # geom_ribbon(
+  #   data = PLB_df, aes(x.PLB, ymin =confMin, ymax = confMax),
+  #   fill = gmri_cols("orange"), 
+  #   alpha = 0.4) +
+  geom_line(
+    data = PLB_df, aes(x.PLB, y.PLB),
+    color = gmri_cols("orange"), 
+    linewidth = 1) +
+    geom_point(
+      data = p_prepped %>% filter(lowCount >0),
+      aes(x = (wmin_g+wmax_g)/2,
+          y = countGTEwmin),
+    color = gmri_cols("gmri blue"),
+    alpha = 0.15,
+    shape = 1) +
+  scale_y_log10(
+    labels = trans_format("log10", math_format(10^.x)), 
+    limits = c(10^-1, 10^6)) +
+  scale_x_log10(
+    labels = trans_format("log10", math_format(10^.x)), 
+    limits = c(10^-1, 10^6)) +
+  labs(x = "Weight (g)", 
+       y = "Abundance", 
+       title = "Wigley Species - GOM - Spring - 2000",
+       subtitle = "1g Minimum Size")
+
+fit_1g_gom_2000 
+```
+
+
+#### 16g Cutoff
+
+```{r}
+
+# Control options
+mle_results <- mle_results_16g
+actual_vals <- actual_vals_16g
+min_used <- 16
+
+
+
+
+#### -- Plpot setup below  ---
+
+# Power law parameters and summary details for the group of data:
+b.MLE           <- mle_results$b
+total_abundance <- mle_results$n
+b.confMin       <- mle_results$confMin
+b.confMax       <- mle_results$confMax
+
+
+
+# Create range of x values from the group to get power law predictions
+# min and max weights for power law
+xmin  <- min_used
+xmax  <- max(actual_vals$wmin_g)
+
+# Create x values (individual bodymass) to predict across
+# break up the Xlim into pieces between min and max
+x.PLB <- seq(
+  from = xmin,
+  to   = xmax,
+  by = 0.1) 
+
+# get the length of that vector
+x.PLB.length <- length(x.PLB) 
+
+# Y values for plot limits/bounds/predictions from bounded power law pdf
+y.PLB         <- (1 - sizeSpectra::pPLB(x = x.PLB, b = b.MLE, xmin = min(x.PLB), xmax = max(x.PLB))) * total_abundance
+y.PLB.confMin <- (1 - sizeSpectra::pPLB(x = x.PLB, b = b.confMin, xmin = min(x.PLB), xmax = max(x.PLB))) * total_abundance
+y.PLB.confMax <- (1 - sizeSpectra::pPLB(x = x.PLB, b = b.confMax, xmin = min(x.PLB), xmax = max(x.PLB))) * total_abundance
+
+# Put it in a df to make it easier
+PLB_df <- data.frame(
+  x.PLB   = x.PLB,
+  y.PLB   = y.PLB,
+  confMin = y.PLB.confMin,
+  confMax = y.PLB.confMax) %>%
+  mutate()
+
+
+# 2. solve the power law function again in mutate for residuals
+# need to do it twice for wmin_g and wmax_g
+# Aggregate across overlapping size ranges
+p_prepped <- actual_vals %>%
+  isd_plot_prep(min_weight_g = min_used) %>%
+  left_join(actual_vals) %>%
+  select(comname, wmin_g, wmax_g, lowCount, highCount, countGTEwmin) %>%
+  # Get the residuals
+  mutate(
+    # Estimated Abundance
+    wmin_estimate = (1 - sizeSpectra::pPLB(x = wmin_g, b = b.MLE, xmin = xmin, xmax = xmax)) * total_abundance,
+    wmax_estimate = (1 - sizeSpectra::pPLB(x = wmax_g, b = b.MLE, xmin = xmin, xmax = xmax)) * total_abundance,
+    # Residuals
+    b_resid = countGTEwmin - ((wmin_estimate + wmax_estimate)/2))
+
+
+
+#####  Plotting Raw  ####
+
+# Messing with the plot axes
+fit_16g_gom_2000 <- ggplot() +
+  geom_line(
+    data = PLB_df, aes(x.PLB, y.PLB),
+    color = gmri_cols("orange"), 
+    linewidth = 1) +
+    geom_point(
+      data = p_prepped %>% filter(lowCount >0),
+      aes(x = (wmin_g+wmax_g)/2,
+          y = countGTEwmin),
+    color = gmri_cols("gmri blue"),
+    alpha = 0.15,
+    shape = 1) +
+  scale_y_log10(
+    labels = trans_format("log10", math_format(10^.x)), 
+    limits = c(10^-1, 10^6)) +
+  scale_x_log10(
+    labels = trans_format("log10", math_format(10^.x)), 
+    limits = c(10^-1, 10^6)) +
+  labs(x = "Weight (g)", 
+       y = "Abundance", 
+       title = "Wigley Species - GOM - Spring - 2000",
+       subtitle = "16g Minimum Size")
+
+fit_16g_gom_2000 
+```
+
+:::
+
+
+### Sensitivity to max size
+
+
+
+```{r}
+
+# Get the slope over those years
+mle_results_1g <- group_binspecies_spectra(
+    ss_input = actual_vals_1g,
+    grouping_vars = c("est_year", "season", "survey_area"),
+    abundance_vals = "numlen_adj",
+    length_vals = "length_cm",
+    use_weight = FALSE,
+    isd_xmin = 1,
+    global_min = TRUE,
+    isd_xmax = 10^5,
+    global_max = TRUE,
+    bin_width = 1,
+    vdiff = 2)
+
+
+
+# and again for 16g
+mle_results_16g <- group_binspecies_spectra(
+    ss_input = actual_vals_16g,
+    grouping_vars = c("est_year", "season", "survey_area"),
+    abundance_vals = "numlen_adj",
+    length_vals = "length_cm",
+    use_weight = FALSE,
+    isd_xmin = 16,
+    global_min = TRUE,
+    isd_xmax = 10^5,
+    global_max = TRUE,
+    bin_width = 1,
+    vdiff = 2)
+```
+
+
+::: panel-tabset
+
+#### 1g Cutoff
+
+```{r}
+
+# Control options
+mle_results <- mle_results_1g
+actual_vals <- actual_vals_1g
+min_used <- 1
+max_used <- 10^5
+
+
+
+
+#### -- Plpot setup below  ---
+
+
+# Power law parameters and summary details for the group of data:
+b.MLE           <- mle_results$b
+total_abundance <- mle_results$n
+b.confMin       <- mle_results$confMin
+b.confMax       <- mle_results$confMax
+
+# Create range of x values from the group to get power law predictions
+# min and max weights for power law
+xmin  <- min_used
+xmax  <- max(actual_vals$wmin_g)
+
+# Create x values (individual bodymass) to predict across
+# break up the Xlim into pieces between min and max
+x.PLB <- seq(
+  from = xmin,
+  to   = xmax,
+  by = 0.1) 
+
+# get the length of that vector
+x.PLB.length <- length(x.PLB) 
+
+# Y values for plot limits/bounds/predictions from bounded power law pdf
+y.PLB         <- (1 - sizeSpectra::pPLB(x = x.PLB, b = b.MLE, xmin = min(x.PLB), xmax = max(x.PLB))) * total_abundance
+y.PLB.confMin <- (1 - sizeSpectra::pPLB(x = x.PLB, b = b.confMin, xmin = min(x.PLB), xmax = max(x.PLB))) * total_abundance
+y.PLB.confMax <- (1 - sizeSpectra::pPLB(x = x.PLB, b = b.confMax, xmin = min(x.PLB), xmax = max(x.PLB))) * total_abundance
+
+# Put it in a df to make it easier
+PLB_df <- data.frame(
+  x.PLB   = x.PLB,
+  y.PLB   = y.PLB,
+  confMin = y.PLB.confMin,
+  confMax = y.PLB.confMax) %>%
+  mutate()
+
+
+# 2. solve the power law function again in mutate for residuals
+# need to do it twice for wmin_g and wmax_g
+# Aggregate across overlapping size ranges
+p_prepped <- actual_vals %>%
+  isd_plot_prep(min_weight_g = min_used) %>%
+  left_join(actual_vals) %>%
+  select(comname, wmin_g, wmax_g, lowCount, highCount, countGTEwmin) %>%
+  # Get the residuals
+  mutate(
+    # Estimated Abundance
+    wmin_estimate = (1 - sizeSpectra::pPLB(x = wmin_g, b = b.MLE, xmin = xmin, xmax = xmax)) * total_abundance,
+    wmax_estimate = (1 - sizeSpectra::pPLB(x = wmax_g, b = b.MLE, xmin = xmin, xmax = xmax)) * total_abundance,
+    # Residuals
+    b_resid = countGTEwmin - ((wmin_estimate + wmax_estimate)/2))
+
+
+
+#####  Plotting Raw  ####
+
+# Messing with the plot axes
+fit_1g_gom_2000 <- ggplot() +
+  geom_line(
+    data = PLB_df, aes(x.PLB, y.PLB),
+    color = gmri_cols("orange"), 
+    linewidth = 1) +
+    geom_point(
+      data = p_prepped %>% filter(lowCount >0),
+      aes(x = (wmin_g+wmax_g)/2,
+          y = countGTEwmin),
+    color = gmri_cols("gmri blue"),
+    alpha = 0.15,
+    shape = 1) +
+  scale_y_log10(
+    labels = trans_format("log10", math_format(10^.x)), 
+    limits = c(10^-1, 10^6)) +
+  scale_x_log10(
+    labels = trans_format("log10", math_format(10^.x)), 
+    limits = c(10^-1, 10^6)) +
+  labs(x = "Weight (g)", 
+       y = "Abundance", 
+       title = "Wigley Species - GOM - Spring - 2000",
+       subtitle = "1g Minimum Size, 10^5 max size limit")
+
+fit_1g_gom_2000
+```
+
+#### 16g Cutoff
+
+```{r}
+
+# Control options
+mle_results <- mle_results_16g
+actual_vals <- actual_vals_16g
+min_used <- 16
+max_used <- 10^5
+
+
+
+
+#### -- Plpot setup below  ---
+
+# Power law parameters and summary details for the group of data:
+b.MLE           <- mle_results$b
+total_abundance <- mle_results$n
+b.confMin       <- mle_results$confMin
+b.confMax       <- mle_results$confMax
+
+
+
+# Create range of x values from the group to get power law predictions
+# min and max weights for power law
+xmin  <- min_used
+xmax  <- max_used
+
+# Create x values (individual bodymass) to predict across
+# break up the Xlim into pieces between min and max
+x.PLB <- seq(
+  from = xmin,
+  to   = xmax,
+  by = 0.1) 
+
+# get the length of that vector
+x.PLB.length <- length(x.PLB) 
+
+# Y values for plot limits/bounds/predictions from bounded power law pdf
+y.PLB         <- (1 - sizeSpectra::pPLB(x = x.PLB, b = b.MLE, xmin = min(x.PLB), xmax = max(x.PLB))) * total_abundance
+y.PLB.confMin <- (1 - sizeSpectra::pPLB(x = x.PLB, b = b.confMin, xmin = min(x.PLB), xmax = max(x.PLB))) * total_abundance
+y.PLB.confMax <- (1 - sizeSpectra::pPLB(x = x.PLB, b = b.confMax, xmin = min(x.PLB), xmax = max(x.PLB))) * total_abundance
+
+# Put it in a df to make it easier
+PLB_df <- data.frame(
+  x.PLB   = x.PLB,
+  y.PLB   = y.PLB,
+  confMin = y.PLB.confMin,
+  confMax = y.PLB.confMax) %>%
+  mutate()
+
+
+# 2. solve the power law function again in mutate for residuals
+# need to do it twice for wmin_g and wmax_g
+# Aggregate across overlapping size ranges
+p_prepped <- actual_vals %>%
+  isd_plot_prep(min_weight_g = min_used) %>%
+  left_join(actual_vals) %>%
+  select(comname, wmin_g, wmax_g, lowCount, highCount, countGTEwmin) %>%
+  # Get the residuals
+  mutate(
+    # Estimated Abundance
+    wmin_estimate = (1 - sizeSpectra::pPLB(x = wmin_g, b = b.MLE, xmin = xmin, xmax = xmax)) * total_abundance,
+    wmax_estimate = (1 - sizeSpectra::pPLB(x = wmax_g, b = b.MLE, xmin = xmin, xmax = xmax)) * total_abundance,
+    # Residuals
+    b_resid = countGTEwmin - ((wmin_estimate + wmax_estimate)/2))
+
+
+
+#####  Plotting Raw  ####
+
+# Messing with the plot axes
+fit_16g_gom_2000 <- ggplot() +
+  geom_line(
+    data = PLB_df, aes(x.PLB, y.PLB),
+    color = gmri_cols("orange"), 
+    linewidth = 1) +
+    geom_point(
+      data = p_prepped %>% filter(lowCount >0),
+      aes(x = (wmin_g+wmax_g)/2,
+          y = countGTEwmin),
+    color = gmri_cols("gmri blue"),
+    alpha = 0.15,
+    shape = 1) +
+  scale_y_log10(
+    labels = trans_format("log10", math_format(10^.x)), 
+    limits = c(10^-1, 10^6)) +
+  scale_x_log10(
+    labels = trans_format("log10", math_format(10^.x)), 
+    limits = c(10^-1, 10^6)) +
+  labs(x = "Weight (g)", 
+       y = "Abundance", 
+       title = "Wigley Species - GOM - Spring - 2000",
+       subtitle = "16g Minimum Size, 10^5 max size limit")
+fit_16g_gom_2000
+```
+
+:::
+
 

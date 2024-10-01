@@ -12,6 +12,6 @@ This index page serves as a link directory to results reports. Use the following
  
  3. [Exploring Regional Temperature Changes](https://adamkemberling.github.io/Spectra_Northeast/Code/R/checks/regional_temperature_changes.html)
  
- 4. [Refocusing on a story]()
+ 4. [Refocusing on a story](https://adamkemberling.github.io/Spectra_Northeast/Code/R/checks/Spectra_Story_Dev.html)
  
  

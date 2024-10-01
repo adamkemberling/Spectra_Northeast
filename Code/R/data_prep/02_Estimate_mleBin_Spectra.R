@@ -62,6 +62,7 @@ length_binspectra <- group_binspecies_spectra(
   vdiff = 4)
 
 
+
 # Plot it
 length_binspectra %>% 
   mutate(yr_num = as.numeric(as.character(est_year))) %>% 
@@ -77,6 +78,8 @@ length_binspectra %>%
        y = "b",
        x = "Year",
        color = "Season")
+
+
 
 
 
