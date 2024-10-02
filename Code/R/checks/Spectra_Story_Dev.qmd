@@ -532,7 +532,8 @@ ggplot() +
     x = "Year",
     y = "Large Fish Index",
     title = "Large Fish Index",
-    fill = "Breakpoint Regimes")
+    fill = "Season",
+    color = "Season")
 
 
 ```
