@@ -8,7 +8,7 @@ format:
     self-contained: true
 execute:
   echo: false
-  fig-width: 6
+  fig-width: 8
   fig-height: 6
   message: false
   warning: false
@@ -85,11 +85,14 @@ wigley_in <- read_csv(here::here("Data/processed/wigley_species_trawl_data.csv")
 
 # Load the three datasets
 wigley_lenspectra <- read_csv(
-  here::here("Data/processed/wigley_species_length_spectra.csv")) 
+  here::here("Data/processed/wigley_species_length_spectra.csv"))  %>% 
+  mutate(survey_area = factor(survey_area, levels = area_levels))
 wigley_bmspectra <- read_csv(
-  here::here("Data/processed/wigley_species_bodymass_spectra.csv")) 
+  here::here("Data/processed/wigley_species_bodymass_spectra.csv")) %>% 
+  mutate(survey_area = factor(survey_area, levels = area_levels))
 finfish_lenspectra <- read_csv(
-  here::here("Data/processed/finfish_length_spectra.csv"))
+  here::here("Data/processed/finfish_length_spectra.csv")) %>% 
+  mutate(survey_area = factor(survey_area, levels = area_levels))
 
 
 
@@ -199,7 +202,7 @@ spectra_trends_1g <- ggplot() +
     linewidth = 1, alpha = 1) +
   scale_fill_gmri() +
   scale_color_gmri() +
-  facet_grid(survey_area ~ metric*community) +
+  facet_grid(survey_area ~ metric*community, scales = "free") +
   labs(
     x = "Year",
     y = "Exponent of Size Spectra")
@@ -295,6 +298,7 @@ len_plot <-  size_long %>%
   scale_color_gmri() +
   facet_grid(survey_area ~ metric*community,
              scales = "free") +
+  theme(strip.text.y = element_blank()) +
   labs(
     x = "Year",
     y = "Length (cm)")
@@ -329,7 +333,7 @@ wt_plot <- size_long %>%
     x = "Year",
     y = "Weight (kg)")
 
-(len_plot | wt_plot) + plot_layout(guides = "collect") & theme(legend.position = "bottom")
+(len_plot | wt_plot) + plot_layout(guides = "collect", widths = c(3,1.5)) & theme(legend.position = "bottom")
 
 ```
 
@@ -392,32 +396,163 @@ no_dogs_bmspectra <- no_dogs_bmspectra %>%
   mutate(est_year = as.numeric(est_year))
 
 
+# Join them together
+dfish_results <- bind_rows(
+   list(
+     "Wigley Full" = wigley_bmspectra,
+     "Wigley w/o Spiny Dogfish" =  no_dogs_bmspectra), 
+   .id = "community") %>% 
+  mutate(metric = "bodymass_spectra") %>% 
+  mutate(
+    survey_area = fct_relevel(survey_area, area_levels))
+
+
+
+
+# Get trends for no dogfish
+nodfish_mod <- lmer(
+  formula = b ~ est_year * survey_area * season + (1|est_year),
+  data = no_dogs_bmspectra)
+
+
+
+dogfish_sens_predictions <- bind_rows(list(
+  "bodymass_spectra-Wigley Full" = get_preds_and_trendsignif(bmspectra_mod_wig),
+  "bodymass_spectra-Wigley w/o Spiny Dogfish" = get_preds_and_trendsignif(nodfish_mod)), 
+  .id = "model_id") %>% 
+  separate(model_id, into = c("metric", "community"), sep = "-") %>% 
+  mutate(metric = fct_rev(metric))
+
+
 
 # Plot the differences
 ggplot() +
+  geom_ribbon(
+    data = filter(dogfish_sens_predictions, non_zero == TRUE),
+    aes(x, ymin = conf.low, ymax = conf.high, fill = season),
+    linewidth = 1, alpha = 0.35) +
+  geom_point(
+    data = dfish_results,
+    aes(est_year, b, color = season),
+    size = 0.8, alpha = 0.5) +
   geom_line(
-    data = no_dogs_bmspectra,
-    aes(est_year, b, color = "Wigley, No Spiny Dogfish")) +
-  geom_line(
-    data = mutate(wigley_bmspectra, survey_area = factor(survey_area, levels = area_levels)),
-    aes(est_year, b, color = "All Wigley Species")) +
-  scale_color_brewer(palette = "Set1") +
-  facet_grid(survey_area~fct_rev(season)) +
-  labs(x = "Year",
-       y = "Exponent of Size Spectra",
-       title = "Shift in Spectra with Exclusion of Spiny Dogfish")
+    data = filter(dogfish_sens_predictions, non_zero == TRUE),
+    aes(x, predicted, color = season),
+    linewidth = 1, alpha = 1) +
+  scale_fill_gmri() +
+  scale_color_gmri() +
+  facet_grid(survey_area ~ metric*community, scales = "free") +
+  labs(
+    x = "Year",
+    y = "Exponent of Size Spectra",
+    title = "Shift in Spectra Trend(s) with Exclusion of Spiny Dogfish")
 
 
 ```
 
 
+### LArge Fish Index
+
+When I looked at large/small fish indices I looked at two metrics:
+
+ - The large fish index (proportion of biomass total represented by fishes in top 5-10% of body sizes) 
+ - The large species index
+
+We will focus on the former for the plots below. Fish size for the below plots will be based on length because these are measured for all individuals.
 
 
+Large fish will be considered anything over 73cm, representing the 95th percentile.
+
+Values are the fraction of total bodymass for a given season that is coming from the large fishes.
+
+```{r}
+##### Large Fish Index  ####
+
+
+# Get 95th percentile as threshold
+DescTools::Quantile(
+  wigley_in$length_cm, 
+  weights = wigley_in$numlen_adj, 
+  probs = c(0.1, 0.5, 0.90))
+
+wigley_in <- wigley_in %>% 
+  mutate(large = ifelse(length_cm > 73, T, F))
+
+
+
+# Get total bio
+total_bio <-  wigley_in %>% 
+  group_by(survey_area, est_year, season) %>% 
+  summarise(
+    total_bio = sum(sum_weight_kg),
+    .groups = "drop")
+  
+  
+# Get large fish bio
+lf_bio <- wigley_in %>% 
+  group_by(survey_area, est_year, season) %>% 
+  summarise(
+    large_bio = sum(sum_weight_kg * large),
+    .groups = "drop")
+
+# Join and divide
+lfi <- left_join(total_bio, lf_bio) %>% 
+  mutate(LFI = large_bio / total_bio)  %>% 
+  mutate(survey_area = factor(survey_area, levels = area_levels))
+
+# trendz
+# Get trends for no dogfish
+lfi_mod <- lmer(
+  formula = LFI ~ est_year * survey_area * season + (1|est_year),
+  data = lfi)
+
+lfi_predictions <- get_preds_and_trendsignif(lfi_mod) %>% 
+  mutate(survey_area = factor(survey_area, levels = area_levels))
+
+
+# Plot the LFI
+ggplot() +
+  geom_ribbon(
+    data = filter(lfi_predictions, non_zero == TRUE),
+    aes(x, ymin = conf.low, ymax = conf.high, fill = season),
+    linewidth = 1, alpha = 0.35) +
+
+  geom_point(
+    data = lfi, aes(est_year, LFI, color = season),
+    size = 0.8, alpha = 0.5) +
+    geom_line(
+    data = filter(lfi_predictions, non_zero == TRUE),
+    aes(x, predicted, color = season),
+    linewidth = 1, alpha = 1) +
+  scale_fill_gmri() +
+  scale_color_gmri() +
+  scale_y_continuous(limits = c(0,1)) +
+  facet_grid(survey_area~., scales = "free") +
+  labs(
+    x = "Year",
+    y = "Large Fish Index",
+    title = "Large Fish Index",
+    fill = "Breakpoint Regimes")
+
+
+```
+
+The fraction of the biomass held in fishes larger than 73cm is lower in the two northern areas, and falling across both seasons.
+
+In SNE its declining in the spring, and in the MAB its increasing.
+
+```{r}
+wigley_in %>% 
+  filter(large) %>% 
+  distinct(comname)
+```
 
 
 __________________
 
 # Distractions
+
+I moved all this stuff below after wasting a bunch of time chasing down loose ends. Enjoy.
 
 ### Initial Thoughts I'd like to Discuss
 
