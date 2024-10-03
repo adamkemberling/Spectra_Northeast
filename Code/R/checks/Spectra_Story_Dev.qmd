@@ -6,8 +6,9 @@ format:
   html:
     toc: true
     self-contained: true
+    code-fold: true
 execute:
-  echo: false
+  echo: true
   fig-width: 8
   fig-height: 6
   message: false
@@ -32,6 +33,8 @@ library(merTools)
 library(tidyquant)
 library(ggeffects)
 library(performance)
+library(gtsummary)
+library(gt)
 conflicted::conflict_prefer("select", "dplyr")
 conflicted::conflict_prefer("filter", "dplyr")
 conflicted::conflicts_prefer(lmerTest::lmer)
@@ -55,19 +58,15 @@ deg_c <- "\u00b0C"
 
 ## Storycrafting - Northeast Shelf Spectra
 
-I think we need to step back a bit and find the main story again--which is about how size structure of the NES fish community has changed over time, whether that varies by region, and what covariates are associated with those changes.  
-
-The Aug draft you developed really focused on comparing regression models to consider drivers based on the fish community size spectrum as viewed from the perspective of the Wigley species set vs. the full species set.  
-
-However, I didn't see figures of those spectra in that draft (maybe there are somewhere else and I've lost track).  The recent slide deck really focuses on seasonal differences in the size spectra and influence of temperature.
+>I think we need to step back a bit and find the main story again--which is about how size structure of the NES fish community has changed over time, whether that varies by region, and what covariates are associated with those changes.  
+The [Aug draft you developed](https://docs.google.com/document/d/1bOIdQgFZbUavtBXPf570ATz9VjpjVX9Ki5hOqVw71CI/edit) really focused on [comparing regression models to consider drivers based on the fish community size spectrum](https://adamkemberling.github.io/Spectra_Northeast/Code/R/modeling/lm_models/lm_summary_materials.html) as viewed from the perspective of the Wigley species set vs. the full species set.  
+However, I didn't see figures of those spectra in that draft (maybe there are somewhere else and I've lost track).  The recent slide deck really focuses on seasonal differences in the size spectra and influence of temperature.  - KMills
 
 ## Starting from Square Uno
 
-I'd like for us to start by rebuilding the story of how the size structure has changed over time and regional differences.  
-
+> I'd like for us to start by rebuilding the story of how the size structure has changed over time and regional differences.  
 As such, I would like for us to look at plots of the size spectrum slope for (1) the all-species length spectrum and (2) the Wigley species biomass spectrum from annual, seasonal and regional perspectives.  
-
-I am thinking this would be two panel plots (all-spp length, Wigley-spp biomass) with 5 subpanels each (NES, GOM, GB, SNE, MAB) that are set up to show lines by seasonal and annual time steps, much like the plot on the right of slide 7 in your most recent slide deck...except with NES added and an annual line added.  Keeping the significant trend lines in is helpful.  This is the first step, so when you have that ready, please share it with the group.
+I am thinking this would be two panel plots (all-spp length, Wigley-spp biomass) with 5 subpanels each (NES, GOM, GB, SNE, MAB) that are set up to show lines by seasonal and annual time steps, much like the plot on the right of slide 7 in your most recent slide deck...except with NES added and an annual line added.  Keeping the significant trend lines in is helpful.  This is the first step, so when you have that ready, please share it with the group.  - KMills
 
 
 
@@ -209,11 +208,63 @@ spectra_trends_1g <- ggplot() +
  
 
 spectra_trends_1g
+```
+
+### Model Summary Tables
+
+
+::: panel-tabset
+
+### Large Community Length Spectra
+
+```{r}
+# Summary tables
+lspectra_mod_ffish %>% 
+  gtsummary::tbl_regression()   %>% 
+  add_global_p(keep = T) %>% 
+  bold_p(t = 0.05)  %>%
+  bold_labels() %>%
+  italicize_levels() %>% 
+  as_gt() %>% 
+  tab_header(title = "Full Finfish Community - Length Spectra Trends")
 
 ```
 
+### Wigley Community Length Spectra
 
-I also think it would be valuable to build out the story of size change further, so am thinking that plots like those of average (or median) length (all species) and weight (wigley species) for NES and the sub-regions, like those on p. 12 of the attached file above (the very first draft from late 2022) would be useful.  
+```{r}
+# Summary tables
+lspectra_mod_wig %>% 
+  gtsummary::tbl_regression()   %>% 
+  add_global_p(keep = T) %>% 
+  bold_p(t = 0.05)  %>%
+  bold_labels() %>%
+  italicize_levels() %>% 
+  as_gt() %>% 
+  tab_header(title = "Wigley Community - Length Spectra Trends")
+
+```
+
+### Wigley Community Bodymass Spectra
+
+```{r}
+# Summary tables
+bmspectra_mod_wig %>% 
+  gtsummary::tbl_regression()   %>% 
+  add_global_p(keep = T) %>% 
+  bold_p(t = 0.05)  %>%
+  bold_labels() %>%
+  italicize_levels() %>% 
+  as_gt() %>% 
+  tab_header(title = "Wigley Community - Mass Spectra Trends")
+
+```
+
+:::
+
+
+
+>I also think it would be valuable to build out the story of size change further, so am thinking that plots like those of average (or median) length (all species) and weight (wigley species) for NES and the sub-regions, like those on p. 12 of the attached file above (the very first draft from late 2022) would be useful.  - KMills  
 
 
 ```{r}
@@ -337,7 +388,9 @@ wt_plot <- size_long %>%
 
 ```
 
-Couple things have started to catch my eye the more I've thought about volatility in these numbers. There seem to be two situations happening on occassion. The first is more common in GOM+GB, and that is a 5-10cm drop in median length. This sudden drop in size I am imagining is likely due to surges in new recruits.
+A couple things have started to catch my eye the more I've thought about volatility in these numbers. 
+
+There seem to be two situations happening on occassion. The first is more common in GOM+GB, and that is a 5-10cm drop in median length. This sudden drop in size I am imagining is likely due to surges in new recruits.
 
 The other patttern which is more common in MAB but looks like it happens a handful of times in GB is the reverse situation, where median size surges upward in isolated years. For these situations I think we likely could trace these down to exceptionally high catches of larger species like elasmobranchs.
 
@@ -451,7 +504,7 @@ ggplot() +
 ```
 
 
-### LArge Fish Index
+### Large Fish Index
 
 When I looked at large/small fish indices I looked at two metrics:
 
@@ -542,35 +595,99 @@ The fraction of the biomass held in fishes larger than 73cm is lower in the two 
 
 In SNE its declining in the spring, and in the MAB its increasing.
 
+The following species are
+
 ```{r}
 wigley_in %>% 
   filter(large) %>% 
-  distinct(comname)
+  distinct(comname) %>% 
+  arrange(comname) %>% 
+  rename(`Common Name:` = comname) %>% 
+  gt() %>%
+  tab_header(title = "Large Fishes")
+
+
 ```
+
+
+### Story Thoughts
+
+Below is a table of some papers operating in the same area or around the same topic that are particularly relevant:
+
+```{r}
+shelf_papers <- tribble(
+  ~"Author", ~"Year", ~"Conjecture",
+  "Friedland et al.", 2024, "Body size has declined despite more abundance & biomass. Competition is preventing larger sizes.",
+  "Krumsick", 2020, "Empirical slopes from trawl survey in labrador sea were steeper than theoretical from nitrogen stable isotope ratios"
+)
+```
+
 
 
 __________________
 
-# Distractions
 
-I moved all this stuff below after wasting a bunch of time chasing down loose ends. Enjoy.
+# Methodology Hangups
 
-### Initial Thoughts I'd like to Discuss
+I do not have confidence that the values we have for slopes presently:
+
+ * Represent the actual distribution of the data   
+ * Are representative of some meaningful feature of the community    
+
+I've changed it about fifty times now, and I am concerned that people are now convinced of a story despite data b
+
+
+### Thoughts on Min/Max Parameters
 
 Our hypotheses both relate primarily to abundance of non-age0 fishes. It might make sense to move the minimum size up to something larger. This will accomplish two things: 1) lower any noise in median size or spectra slope that results from large recruit cohorts & 2) help ensure that the size range we're estimating spectra for are fully selected by the gear.
 
 Currently a 1g minimum size is likely lower than the mesh size selectivity. 
 
+This section from Krumsick 2024 describes how this has been handled previously
+> To account for reduced catchability of small fish,past size-
+spectrum studies have typically only used size frequency data
+for size classes larger than the peak size class in observed data
+(i.e. the descending slope of the observed size-abundance re-
+lationship) when estimating the slope of sizespectra (e.g.Rice
+and Gislason 1996, Daan et al. 2005, Krumsick and Fisher
+2020).
+
+The following table is a short collection of how authors who cited edwards treated this step:
+
+```{r}
+# Table of papers using mle method and their parameter choices:
+lme_params <- tribble(
+  ~"Author", ~"Year", ~"Data Used", ~"method", ~"xmin", ~"xmax",
+  "Wood", 2024, "Hook and line fisheries dependent reef fishes from fishermen interviews", "log10 bins of 15mm", "141mm", "320mm",
+  
+  "Letessier", 2024, "Baited Remote Underwater Video Systems BRUVS", "Two scales: normalized spectra w/ log10 bins for latitudinal brackets, MLE method for individual size distribution for each survey day" , "not reported", "not reported",
+  
+  "Rice and Gislason", 2006, "Trawl survey of North Sea Fish + multi-species virtual pop. analysis", "ln
+abundance within a size interval to ln size interval, says 10cm later", "not stated", "not stated",
+  
+  "Daan", 2005, "North Sea fisheries independent trawl surveys", "5 & 10cm bins, ln(cpue) within bins", 
+  "After inspection of the size range
+conforming to a ln-linear slope: ", "size classes at
+the lower (poor retention in the gear) and upper (captures
+too infrequent for robust estimates) end of the range were
+excluded",
+
+  "Krumsick", 2020, "Labrador canada fisheries independent trawl", "...followed recommen-
+dations provided by Edwards et al. (2017), although
+the prescribed maximum likelihood estimate approach
+departed from the empirical data (Fig. S3)... then binned", "64g", "not stated"
+
+)
+
+
+lme_params %>% gt()
+```
+
+
 The following plot shows what the distriution looks like for all data (years, seasons, areas) over the range of sizes we are allowing to contribute to the estimation of seasonal spectra. I've highlighted where a minimum body size of 1g sits on this curve to mark where it sits.
 
-## Is it even Pareto?
 
-It is quite a pain to determine whether the data follow a pareto distribution in the first place. I'm unsure if the lines in the plots below faithfully follow how they are estimated and how to score goodness of fit for a probability density function. 
-
-> The MLE method avoids binning and regression. Binning in general can be problematic (e.g. if a data set has no body masses <10 g but the lowest bin is defined as 8–16 g), and the choice of bin widths can affect the estimated slope (Vidondo et al. 1997). Regression-based methods are problematic because the intercept and the slope implicitly determine urn:x-wiley:2041210X:media:mee312641:mee312641-math-0064, which can erroneously be greater than some data values (James, Plank & Edwards 2011). They also assume that the errors in the logarithmic counts for each bin have the same variance, which may not be justified. Although regression can be understood in a likelihood context, this is different to explicitly using a likelihood-based method (Edwards et al. 2012).
-
-After doing some attempts to plot the impacts of moving it around, I am less convinced that its helping things and it may even be harming the situation. 
-
+The following plot shows what the distriution looks like for all data (years, seasons, areas) over the range of sizes we are allowing to contribute to the estimation of seasonal spectra. I've highlighted where a minimum body size of 1g sits on this curve to mark where it sits.
 
 ```{r}
 # Broad Distribution
@@ -818,17 +935,79 @@ ggplot(wigley_all_aggs, aes(2^left_lim, normalized_abund)) +
 
 ```
 
-I picked 16g here basically eyeballing things, but my point is mostly that I think there is a need and an advantage to shifting the minimum size. There is a similar lack of tuning for minimum length as well.
+I picked 16g here basically eyeballing things, but my point is mostly that I think there is a need and an advantage to shifting the minimum size. We could probably be more scientific and look at the mesh size used (codend liner 1 inch stretched diamond mesh), but I think precision there is less important that being closer than we are now.
+
+In all regions it seems like the typical linear slope begins at a larger size than 1g.
 
 
-We could probably be more scientific and look at the mesh size used, but I think precision there is less important that being closer than we are now.
+```{r}
+# Aggregate on year, area, season
+wigley_season_aggs <- wigley_log2 %>% 
+  mutate(group_var = str_c(survey_area, "_", season)) %>% 
+  split(.$group_var) %>% 
+  map_dfr(
+    ~aggregate_log2_bins(
+      .x,
+      min_l10_bin = 0, 
+      max_l10_bin = 10, 
+      bin_increment = 1),
+    .id = "group_var") %>% 
+  separate(col = group_var, into = c("survey_area", "season"))
+  
 
-For maximum size we presently take the maximum individual size in that area-year-season unit. While this also affects the distribution shape I am less concerned with this for now.
+# Plot
+ggplot(wigley_season_aggs, aes(2^left_lim, normalized_abund)) +
+  geom_col(aes(fill = season),  position = "dodge", alpha  = 0.4) +
+  geom_vline(xintercept = 1, linetype = 2, color = "red", linewidth = 1) +
+  geom_label(
+      data = data.frame(val = 1, label = "1g"),
+      aes(x = val, y = I(0.5), label = label),
+      color = "red", label.size = 0.5, size = 2,
+      label.padding = unit(0.7, "lines"), label.r = unit(0.5, "lines")) +
+  geom_vline(xintercept = 2^4, linetype = 1, color = "royalblue", linewidth = 1) +
+  geom_label(
+      data = data.frame(val = 2^4, label = "16g"),
+      aes(x = val, y = I(0.5), label = label),
+      color = "royalblue", label.size = 0.5, size = 2,
+      label.padding = unit(0.7, "lines"), label.r = unit(0.5, "lines")) +
+  scale_fill_gmri() +
+  scale_x_continuous(labels = label_log(base = 2), transform = "log2", breaks = 2^c(0:12)) +
+  scale_y_continuous(labels = label_log(base = 2), transform = "log2") +
+  facet_wrap(~survey_area, ncol = 1, scales = "fixed") +
+  labs(
+    x = "Individual Body Weight (g)",
+    y = "Normalized Abundance\n(total abundance / bin width)",
+    color = "Season",
+    title = "All-year, Seasonal size spectrum for Wigley Species Subset")
+  
+```
 
 
-## What if we shift it?
+There is a similar lack of tuning for maximum length as well. For maximum size we presently take the maximum individual size in that area-year-season unit. While this also affects the distribution shape I am less concerned with this for now.
 
-I'm just going to go ahead and do it and see
+
+
+## Is it even Pareto?
+
+It is quite a pain to determine whether the data follow a pareto distribution in the first place. I'm unsure if the lines in the plots below faithfully follow how they are estimated and how to score goodness of fit for a probability density function. 
+
+This section from Edwards 2007 alludes to the ongoing debate on appropriateness of applying size spectra methods to empirical data.
+
+> The MLE method avoids binning and regression. Binning in general can be problematic (e.g. if a data set has no body masses <10 g but the lowest bin is defined as 8–16 g), and the choice of bin widths can affect the estimated slope (Vidondo et al. 1997). Regression-based methods are problematic because the intercept and the slope implicitly determine urn:x-wiley:2041210X:media:mee312641:mee312641-math-0064, which can erroneously be greater than some data values (James, Plank & Edwards 2011). They also assume that the errors in the logarithmic counts for each bin have the same variance, which may not be justified. Although regression can be understood in a likelihood context, this is different to explicitly using a likelihood-based method (Edwards et al. 2012).
+
+
+
+
+
+
+## What if we shifted minimum size to 16g?
+
+I'm just going to go ahead and do it and see:
+
+After doing some attempts to plot the impacts of moving it around, I am less convinced that its helping things and it may even be harming the situation. 
+
+
+In Krumsick et al. 2020 they determined visually that their data from the trawl data did not follow the distribution assumed by the MLE methodology and instead turned to normalized spectra using binned methods.
 
 ```{r}
 #| eval: false
