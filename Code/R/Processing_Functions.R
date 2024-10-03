@@ -596,6 +596,7 @@ group_binspecies_spectra <-  function(
         min_i <- min(ss_input_i$wmin, na.rm = T)
         max_i <- max(ss_input_i$wmax, na.rm = T)
         
+        # If there was no global xmin, record them using the group's min/max values
         if(global_min == FALSE){
           if(is.null(isd_xmin)){ isd_xmin <- min_i}
         }
@@ -607,12 +608,13 @@ group_binspecies_spectra <-  function(
         ss_input_i <- ss_input_i %>% 
           filter(wmin >= isd_xmin,
                  wmin <= isd_xmax) %>% 
-         mutate(Number = ceiling(Number))
+         mutate(Number = ceiling(Number)) # rounds up to integers
         
         # Total individuals in subgroup
         #n_i <- sum(ceiling(ss_input_i$Number) )
         n_i <- sum(ss_input_i$Number)
         
+        # debugging
         # return(
         #   list(
         #     n = n_i,

@@ -513,10 +513,9 @@ When I looked at large/small fish indices I looked at two metrics:
 
 We will focus on the former for the plots below. Fish size for the below plots will be based on length because these are measured for all individuals.
 
+Large fish will be considered anything over 73cm, representing the 95th percentile. Values are the fraction of total bodymass for a given season that is coming from the large fishes.
 
-Large fish will be considered anything over 73cm, representing the 95th percentile.
-
-Values are the fraction of total bodymass for a given season that is coming from the large fishes.
+The fraction of the biomass held in fishes larger than 73cm is lower in the two northern areas, and falling across both seasons. In SNE its declining in the spring, and in the MAB its increasing.
 
 ```{r}
 ##### Large Fish Index  ####
@@ -591,11 +590,7 @@ ggplot() +
 
 ```
 
-The fraction of the biomass held in fishes larger than 73cm is lower in the two northern areas, and falling across both seasons.
-
-In SNE its declining in the spring, and in the MAB its increasing.
-
-The following species are
+The following species are those which has representation in the large fish index:
 
 ```{r}
 wigley_in %>% 
@@ -634,7 +629,7 @@ I do not have confidence that the values we have for slopes presently:
  * Represent the actual distribution of the data   
  * Are representative of some meaningful feature of the community    
 
-I've changed it about fifty times now, and I am concerned that people are now convinced of a story despite data b
+I've changed it about fifty times now, and I am concerned that people are now convinced of a story despite these values not meaning what we are assuming they mean.
 
 
 ### Thoughts on Min/Max Parameters
@@ -662,10 +657,10 @@ lme_params <- tribble(
   
   "Letessier", 2024, "Baited Remote Underwater Video Systems BRUVS", "Two scales: normalized spectra w/ log10 bins for latitudinal brackets, MLE method for individual size distribution for each survey day" , "not reported", "not reported",
   
-  "Rice and Gislason", 2006, "Trawl survey of North Sea Fish + multi-species virtual pop. analysis", "ln
-abundance within a size interval to ln size interval, says 10cm later", "not stated", "not stated",
+  "Rice and Gislason", 1996, "Trawl survey of North Sea Fish + multi-species virtual pop. analysis", "ln
+abundance within a size interval (10cm) to ln size intervals", "not stated", "not stated",
   
-  "Daan", 2005, "North Sea fisheries independent trawl surveys", "5 & 10cm bins, ln(cpue) within bins", 
+  "Daan", 2005, "North Sea fisheries independent trawl surveys", "ln(abundance cpue) within bins ~ 5 & 10cm bins", 
   "After inspection of the size range
 conforming to a ln-linear slope: ", "size classes at
 the lower (poor retention in the gear) and upper (captures
@@ -675,7 +670,9 @@ excluded",
   "Krumsick", 2020, "Labrador canada fisheries independent trawl", "...followed recommen-
 dations provided by Edwards et al. (2017), although
 the prescribed maximum likelihood estimate approach
-departed from the empirical data (Fig. S3)... then binned", "64g", "not stated"
+departed from the empirical data (Fig. S3)... then binned", "64g", "not stated",
+
+"Blanchard", 2009, "North sea predator and detritvore log(abundance/m2) ~ log(bodymass) slopes", "log10 body mass bins", "predators: 256g", "predators: 4kg"
 
 )
 
@@ -684,10 +681,9 @@ lme_params %>% gt()
 ```
 
 
-The following plot shows what the distriution looks like for all data (years, seasons, areas) over the range of sizes we are allowing to contribute to the estimation of seasonal spectra. I've highlighted where a minimum body size of 1g sits on this curve to mark where it sits.
+The following plot shows what the distribution looks like for all data (years, seasons, areas) over the range of sizes we are allowing to contribute to the estimation of seasonal spectra. I've highlighted where a minimum body size of 1g sits on this curve to mark where it sits.
 
 
-The following plot shows what the distriution looks like for all data (years, seasons, areas) over the range of sizes we are allowing to contribute to the estimation of seasonal spectra. I've highlighted where a minimum body size of 1g sits on this curve to mark where it sits.
 
 ```{r}
 # Broad Distribution
@@ -727,7 +723,7 @@ define_log2_bins <- function(log2_min = 0, log2_max = 13, log2_increment = 1){
 ```
 
 ```{r}
-#' @title Assign Manual log2 Bodymass Bins
+#' @title Assign Manual log2 Bodymass Bins - By weight
 #'
 #' @description Manually assign log2 bins based on individual length-weight bodymass 
 #' in increments of 1 on the log2 scale. Returns data with bins assigned based on individual
@@ -952,7 +948,8 @@ wigley_season_aggs <- wigley_log2 %>%
       max_l10_bin = 10, 
       bin_increment = 1),
     .id = "group_var") %>% 
-  separate(col = group_var, into = c("survey_area", "season"))
+  separate(col = group_var, into = c("survey_area", "season")) %>% 
+  mutate(season = fct_rev(season))
   
 
 # Plot
@@ -984,6 +981,56 @@ ggplot(wigley_season_aggs, aes(2^left_lim, normalized_abund)) +
 
 
 There is a similar lack of tuning for maximum length as well. For maximum size we presently take the maximum individual size in that area-year-season unit. While this also affects the distribution shape I am less concerned with this for now.
+
+However. If we revert to the binning methods we may encounter issues where bins exist in some years and are NA in others.
+
+
+If we take a year at random the distributions are even more patchy
+
+```{r}
+
+# Aggregate on year, area, season
+wigley_season_aggs <- wigley_log2 %>% 
+  filter(est_year == 2000) %>% 
+  mutate(group_var = str_c(survey_area, "_", season)) %>% 
+  split(.$group_var) %>% 
+  map_dfr(
+    ~aggregate_log2_bins(
+      .x,
+      min_l10_bin = 0, 
+      max_l10_bin = 10, 
+      bin_increment = 1),
+    .id = "group_var") %>% 
+  separate(col = group_var, into = c("survey_area", "season")) %>% 
+  mutate(season = fct_rev(season))
+  
+
+# Plot
+ggplot(wigley_season_aggs, aes(2^left_lim, normalized_abund)) +
+  geom_col(aes(fill = season),  position = "dodge", alpha  = 0.4) +
+  geom_vline(xintercept = 1, linetype = 2, color = "red", linewidth = 1) +
+  geom_label(
+      data = data.frame(val = 1, label = "1g"),
+      aes(x = val, y = I(0.5), label = label),
+      color = "red", label.size = 0.5, size = 2,
+      label.padding = unit(0.7, "lines"), label.r = unit(0.5, "lines")) +
+  geom_vline(xintercept = 2^4, linetype = 1, color = "royalblue", linewidth = 1) +
+  geom_label(
+      data = data.frame(val = 2^4, label = "16g"),
+      aes(x = val, y = I(0.5), label = label),
+      color = "royalblue", label.size = 0.5, size = 2,
+      label.padding = unit(0.7, "lines"), label.r = unit(0.5, "lines")) +
+  scale_fill_gmri() +
+  scale_x_continuous(labels = label_log(base = 2), transform = "log2", breaks = 2^c(0:12)) +
+  scale_y_continuous(labels = label_log(base = 2), transform = "log2") +
+  facet_wrap(~survey_area, ncol = 1, scales = "fixed") +
+  labs(
+    x = "Individual Body Weight (g)",
+    y = "Normalized Abundance\n(total abundance / bin width)",
+    color = "Season",
+    title = "2000, Seasonal size spectrum for Wigley Species Subset")
+
+```
 
 
 
@@ -1162,9 +1209,14 @@ actual_vals_16g <- wigley_in %>%
 
 ### Sensitivity to minimum size
 
+Even when shifting the minimum size, its not clear that the size distribution now follows the pareto distribution more closely. Its easier to quickly look at the binned versions, but then we're hopping across methods again.
+
 ```{r}
 # Load processing functions
 source(here::here("Code/R/Processing_Functions.R"))
+
+
+# group_binspecies_spectra uses sizeSpectra::negLL.PLB.bins.species
 
 
 # Get the slope over those years
@@ -1222,7 +1274,7 @@ isd_plot_prep <- function(
   biomass_data <- dplyr::arrange(biomass_data, desc(wmin_g)) %>% 
     select(wmin_g, wmax_g, numlen_adj)
   
-  # truncate the data to in match the spectra fit
+  # truncate the data to in match the spectra we fit's xmin/xmax
   biomass_data <- biomass_data %>% 
     filter(wmin_g >= min_weight_g,
            wmin_g != 0,
@@ -1230,7 +1282,7 @@ isd_plot_prep <- function(
            wmax_g != 0,
            is.na(wmax_g) == FALSE)
   
-  # Number of fish for the year
+  # Get the total number of fish for the group
   total_abundance <- sum(biomass_data$numlen_adj)
   
   # Have to do not with dplyr:
@@ -1242,14 +1294,16 @@ isd_plot_prep <- function(
   biomass_bins <- select(biomass_data, wmin_g, wmax_g) %>% 
     distinct(wmin_g, wmax_g)
   
-  # Go row-by-row and get how many of any species falls into each
-  # discrete size bin
+  # Go row-by-row and get the cumulative total greater than each 
+  # minimum weight bin discrete size bin
   out_data <- pmap_dfr(biomass_bins, function(wmin_g, wmax_g){
     
     # 1. Count times wmin.vec >= individual wmin_g, multiply by number of fish for year
+    # cumulative totals of sizes larger than the left lim
     countGTEwmin <- sum( (wmin.vec >= wmin_g) * num.vec)
     
     # 2. Count times wmin.vec >= individual wmax_g, multiply by number of fish for year
+    # cumulative totals of sizes larger than the right lim
     lowCount <- sum( (wmin.vec >= wmax_g) * num.vec)
     
     # 3. Count times wmax.vec > individual wmin_g, multiply by number of fish for year
