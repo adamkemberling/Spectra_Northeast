@@ -451,7 +451,8 @@ wigley_bmspectra_model_df %>%
 wigley_bmspectra_model_df %>% 
   distinct(est_year, survey_area, total_weight_lb) %>% 
   ggplot(aes(est_year, total_weight_lb/1e6)) +
-  geom_point(size = 0.8, alpha = 0.5) +
+  geom_col(alpha = 0.5) +
+  # geom_point(size = 0.8, alpha = 0.5) +
   geom_ma(size = 1, n = 5, ma_fun = SMA, linetype = 1) +
   facet_wrap(~survey_area, ncol = 1) +
   scale_y_continuous(labels = label_number(suffix = "M")) +
