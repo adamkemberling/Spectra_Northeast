@@ -238,9 +238,15 @@ ggplot(aes(est_year, val, color = flag)) +
 
 
 
-####  Save Length Spectra  ####
+####  Save Length/Mass Spectra  ####
 write_csv(length_binspectra, here::here("Data/processed/finfish_length_spectra.csv"))
 write_csv(length_binspectra_wigley, here::here("Data/processed/wigley_species_length_spectra.csv"))
 write_csv(bodymass_binspectra_wigley, here::here("Data/processed/wigley_species_bodymass_spectra.csv"))
+
+
+
+
+#####  New Cutoff 10g?  ####
+
 
 

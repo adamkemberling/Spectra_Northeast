@@ -18,43 +18,12 @@
 
 ####  Data  ####
 
-# Different Sheets
-
-# # Organized by port
-# by_port <- read_xlsx(
-#   path = here("Data/KMills_landings by area 1964-2021 - FINFISH ONLY_MAY 2022.xlsx"), 
-#   sheet = 1, 
-#   skip = 0) %>% 
-#   clean_names()
-# 
-# # Organized by stat zone
-# by_szone <- read_xlsx(
-#   path = here("Data/KMills_landings by area 1964-2021 - FINFISH ONLY_MAY 2022.xlsx"), 
-#   sheet = 2, 
-#   skip = 0) %>% 
-#   clean_names()
-# 
-# # List of species
-# spec_list <- read_xlsx(
-#   path = here("Data/KMills_landings by area 1964-2021 - FINFISH ONLY_MAY 2022.xlsx"), 
-#   sheet = 3, 
-#   skip = 0) %>% 
-#   clean_names()
-# 
-# 
-# # Landings of finfish* sheet 5
-# res_path <- cs_path("res")
-# landings <- read_xlsx(
-#   path = here("Data/KMills_landings by area 1964-2021_JUN 2022.xlsx"), sheet = 5) %>% 
-#   rename_all(tolower)
-
-
+# Landings data obtained from Andy Beet with the NEFSC
 
 
 ####  Assign Regions to Follow Strata-Aggregates  ####
 
-landings <- read_xlsx(
-  path = here("Data/raw/KMills_landings by area 1964-2021_JUN 2022.xlsx"), sheet = 5) %>% 
+landings <- read_rds(here::here("Data/raw/LandingsByYearAreaSpecies.rds")) %>% 
   rename_all(tolower)
 
 
@@ -77,10 +46,10 @@ fish_zones <- list(
 landings <- landings %>% 
   mutate(
     survey_area = case_when(
-      `stat area` %in% fish_zones$"Gulf of Maine" ~ "Gulf of Maine",
-      `stat area` %in% fish_zones$"Georges Bank" ~ "Georges Bank",
-      `stat area` %in% fish_zones$"Southern New England" ~ "Southern New England",
-      `stat area` %in% fish_zones$"Mid-Atlantic Bight" ~ "Mid-Atlantic Bight")) %>% 
+      `area` %in% fish_zones$"Gulf of Maine" ~ "Gulf of Maine",
+      `area` %in% fish_zones$"Georges Bank" ~ "Georges Bank",
+      `area` %in% fish_zones$"Southern New England" ~ "Southern New England",
+      `area` %in% fish_zones$"Mid-Atlantic Bight" ~ "Mid-Atlantic Bight")) %>% 
   filter(survey_area %in% c("Georges Bank", "Gulf of Maine", "Southern New England", "Mid-Atlantic Bight"))
 
 
@@ -105,8 +74,8 @@ landings <- landings %>%
 
 
 
-####  Remove Freshwater Species  ####
-landings <- landings %>% mutate(sppname = tolower(sppname)) 
+####  Remove Freshwater Species if they're there  ####
+landings <- landings %>% mutate(sppname = tolower(common_name)) 
 landings %>% distinct(sppname) %>% pull() %>% sort()
 
 # Filter the freshwater species out
@@ -129,13 +98,11 @@ landings <- landings %>%
 
 # Get Summaries
 landings_summ <- landings %>% 
-  rename(
-    "weight_lb" = `landed lbs`,
-    "live_lb"   = `live lbs`) %>% 
+  mutate("live_lb"   = mtlive * 2204.62) %>% 
   group_by(year, survey_area) %>% 
   summarise( 
     across(
-      .cols = c(value, weight_lb, live_lb), 
+      .cols = c(mtlive, live_lb), 
       .fns = list(mean = ~mean(.x , na.rm = T), 
                   total = ~sum(.x , na.rm = T)), 
       .names = "{.fn}_{.col}"), 
@@ -143,8 +110,22 @@ landings_summ <- landings %>%
 
 
 # Save those
-write_csv(landings_summ, here::here("Data/processed/GARFO_regional_finfish_landings.csv"))
+write_csv(landings_summ, here::here("Data/processed/BEET_GARFO_regional_finfish_landings.csv"))
 
+
+
+
+
+####  Compare  ####
+kmills_garfo <- read_csv(here::here("Data/processed/GARFO_regional_finfish_landings.csv"))
+
+
+ggplot() +
+  geom_line(
+    data = landings_summ, aes(year, total_live_lb, color = "Andy Landings")) +
+  geom_line(
+    data = kmills_garfo, aes(year, total_live_lb, color = "Old Landings")) +
+  facet_wrap(~survey_area)
 
 
 

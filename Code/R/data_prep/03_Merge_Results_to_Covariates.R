@@ -35,14 +35,22 @@ area_df <- data.frame(
 
 
 # Read in GARFO Landings, averaged over ~survey_areas
+
+# # From 2022 GMRI inventory
+# landings_annual <- read_csv(here::here("Data/processed/GARFO_regional_finfish_landings.csv")) %>% 
+
+# From Andy Beet
 landings_annual <- read_csv(here::here("Data/processed/GARFO_regional_finfish_landings.csv")) %>% 
   rename(area = survey_area,
          est_year = year) %>% 
   left_join(area_df) %>% 
-  select(survey_area, est_year, total_weight_lb)
+  select(survey_area, est_year, total_weight_lb = total_live_lb)
 
 
-# Read in du pontavice bottom temperatures, averaged within survey_areas
+
+
+# Read in du pontavice bottom temperatures, 
+# these are averaged within survey_areas in Code/py/Annual_BT_Processing.ipynb
 
 # ## Annual Bottom temp
 # bot_temps <- read_csv(here::here("Data/processed", "trawl_region_bottom_temps.csv")) %>%
@@ -65,13 +73,13 @@ bot_temps <- read_csv(here::here("Data/processed", "trawl_region_seasonal_bottom
 #### Create Modeling Datasets  ####
 
 # 1. Large Community Median Length + length spectra
-ffish_medlen_model_df <- left_join(finfish_sizes, bot_temps) %>% left_join(landings_annual)
+ffish_medlen_model_df     <- left_join(finfish_sizes, bot_temps) %>% left_join(landings_annual)
 ffish_lenspectra_model_df <- left_join(finfish_length_spectra, bot_temps) %>% left_join(landings_annual)
 
 # 2. Smaller Community Length/Weight/Spectra
-wigley_medlen_model_df <- left_join(wigley_sizes, bot_temps) %>% left_join(landings_annual)
+wigley_medlen_model_df     <- left_join(wigley_sizes, bot_temps) %>% left_join(landings_annual)
 wigley_lenspectra_model_df <- left_join(wigley_length_spectra, bot_temps) %>% left_join(landings_annual)
-wigley_bmspectra_model_df <- left_join(wigley_bodymass_spectra, bot_temps) %>% left_join(landings_annual)
+wigley_bmspectra_model_df  <- left_join(wigley_bodymass_spectra, bot_temps) %>% left_join(landings_annual)
 
 
 

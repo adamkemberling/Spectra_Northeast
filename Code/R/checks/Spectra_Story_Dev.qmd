@@ -71,11 +71,12 @@ I am thinking this would be two panel plots (all-spp length, Wigley-spp biomass)
 
 
 ```{r}
-#| label: load input data
+#| label: load input data usecd to estimate spectra
 
 
 # Data used for Wigley estimates
 wigley_in <- read_csv(here::here("Data/processed/wigley_species_trawl_data.csv"))
+finfish_in <- read_csv(here::here("Data/processed/finfish_trawl_data.csv"))
 ```
 
 
@@ -398,16 +399,72 @@ The other patttern which is more common in MAB but looks like it happens a handf
 ## Summary of Trends
 
 
-Let's start with these pieces, and we can then discuss doing something with the extremes of the size distribution--changes in small vs. large individuals, where we pre-define size bins as you've done in slides 7 and 8, or perhaps using an approach similar to Lora's approach of defining the upper/lower percentiles of size.
-
-Hope this sounds good as some first steps towards shaping out the results section.  And I hope once we see these, we can iterate forward to next steps pretty quickly.
+> Let's start with these pieces, and we can then discuss doing something with the extremes of the size distribution--changes in small vs. large individuals, where we pre-define size bins as you've done in slides 7 and 8, or perhaps using an approach similar to Lora's approach of defining the upper/lower percentiles of size. - KMillz
 
 
 
+## Relationships to Temperature and Landings
+
+The following plots and summaries will relate the Wigley species spectra to Temperature and Live Landings
+
+```{r}
+
+# # data limited community
+# ffish_medlen_model_df <- read_csv(here::here("Data/model_ready/large_community_medlength_mod.csv"))
+# ffish_lenspectra_model_df <- read_csv(here::here("Data/model_ready/large_community_lenspectra_mod.csv"))
+# 
+# # well studied community
+# wigley_medlen_model_df <- read_csv(here::here("Data/model_ready/wigley_community_medsize_mod.csv"))
+# wigley_lenspectra_model_df <- read_csv(here::here("Data/model_ready/wigley_community_lenspectra_mod.csv"))
+wigley_bmspectra_model_df <- read_csv(here::here("Data/model_ready/wigley_community_bmspectra_mod.csv"))
+
+# Use one for plots
+wigley_bmspectra_model_df <- wigley_bmspectra_model_df %>% 
+  mutate(survey_area = case_when(
+    survey_area == "GoM" ~ "Gulf of Maine",
+    survey_area == "GB" ~ "Georges Bank",
+    survey_area == "SNE" ~ "Southern New England",
+    survey_area == "MAB" ~ "Mid-Atlantic Bight"),
+  survey_area = factor(survey_area, levels = area_levels_long),
+  season = fct_rev(season))
+
+```
+
+
+###  Bottom Temperature Changes
+
+```{r}
+wigley_bmspectra_model_df %>% 
+  ggplot(aes(est_year, bot_temp, color = season)) +
+  geom_point(size = 0.8, alpha = 0.5) +
+  geom_ma(size = 1, n = 5, ma_fun = SMA, linetype = 1) +
+  scale_color_gmri() + 
+  facet_wrap(~survey_area, ncol = 1) +
+  scale_y_continuous(labels = label_number(suffix = "\u00b0C")) +
+  labs(y = "Bottom Temperature", x = "Year", color = "5-Year Smooth")
+```
+
+
+### Total Landings
+
+```{r}
+wigley_bmspectra_model_df %>% 
+  distinct(est_year, survey_area, total_weight_lb) %>% 
+  ggplot(aes(est_year, total_weight_lb/1e6)) +
+  geom_point(size = 0.8, alpha = 0.5) +
+  geom_ma(size = 1, n = 5, ma_fun = SMA, linetype = 1) +
+  facet_wrap(~survey_area, ncol = 1) +
+  scale_y_continuous(labels = label_number(suffix = "M")) +
+  labs(y = "Total Landings (live lb.)", x = "Year")
+```
+
+
+
+---
  
 ### Spiny Dogfish Sensitivity
 
-How much can one species shift the spectra
+How much can one species shift the spectra, and is this a definitive/conclusive proof that its the dogfish shallowing the slope in MAB?
 
 ```{r}
 #| eval: false
@@ -626,8 +683,8 @@ __________________
 
 I do not have confidence that the values we have for slopes presently:
 
- * Represent the actual distribution of the data   
- * Are representative of some meaningful feature of the community    
+ * Represent the actual distribution of the data (mis-application of an assumed distribution)   
+ * Are representative of some meaningful feature of the community (the slope from the above mis-application has no meaning)    
 
 I've changed it about fifty times now, and I am concerned that people are now convinced of a story despite these values not meaning what we are assuming they mean.
 
@@ -681,13 +738,12 @@ lme_params %>% gt()
 ```
 
 
-The following plot shows what the distribution looks like for all data (years, seasons, areas) over the range of sizes we are allowing to contribute to the estimation of seasonal spectra. I've highlighted where a minimum body size of 1g sits on this curve to mark where it sits.
 
 
 
 ```{r}
 # Broad Distribution
-#log2 bins bor easy-of-access
+#log2 bins for easy-of-access
 #' @title Build Log 2 Bin Structure Dataframe
 #' 
 #' @description Used to build a dataframe containing equally spaced log2 bins for
@@ -892,18 +948,21 @@ aggregate_log2_bins <- function(
 
 
 
+The following plots shows what the distribution looks like for all data (years, seasons, areas) over the range of sizes we are allowing to contribute to the estimation of seasonal spectra. I've highlighted where a minimum body size of 1g sits on this curve to mark where it sits.
+
+
 ```{r}
 #| label: body weight binned overall
 
-# Assign l10 bins
+# Assign l2 bins
 wigley_log2 <- assign_log2_bins(wigley_in, log2_increment = 1)
 
 # Aggregate on year, area, season
 wigley_all_aggs <- wigley_log2 %>% 
   aggregate_log2_bins(
     .,
-    min_l10_bin = 0, 
-    max_l10_bin = 10, 
+    min_log2_bin = 0, 
+    max_log2_bin = 10, 
     bin_increment = 1)
 
 # Plot
@@ -933,8 +992,8 @@ ggplot(wigley_all_aggs, aes(2^left_lim, normalized_abund)) +
 
 I picked 16g here basically eyeballing things, but my point is mostly that I think there is a need and an advantage to shifting the minimum size. We could probably be more scientific and look at the mesh size used (codend liner 1 inch stretched diamond mesh), but I think precision there is less important that being closer than we are now.
 
-In all regions it seems like the typical linear slope begins at a larger size than 1g.
 
+In all regions it seems like the typical linear slope begins at a larger size than 1g.
 
 ```{r}
 # Aggregate on year, area, season
@@ -980,12 +1039,7 @@ ggplot(wigley_season_aggs, aes(2^left_lim, normalized_abund)) +
 ```
 
 
-There is a similar lack of tuning for maximum length as well. For maximum size we presently take the maximum individual size in that area-year-season unit. While this also affects the distribution shape I am less concerned with this for now.
-
-However. If we revert to the binning methods we may encounter issues where bins exist in some years and are NA in others.
-
-
-If we take a year at random the distributions are even more patchy
+If we take a year at random the distributions are even more patchy:
 
 ```{r}
 
@@ -1033,16 +1087,286 @@ ggplot(wigley_season_aggs, aes(2^left_lim, normalized_abund)) +
 ```
 
 
+There is a similar lack of tuning for maximum weight/length as well. For maximum size we presently take the maximum individual size in that area-year-season unit. While this also affects the distribution shape I am less concerned with this for now.
+
+However. If we revert to the binning methods we may encounter issues where bins exist in some years and are NA in others.
+
+Here is what the length distirbution looks like for the broader finfish community:
+
+
+
+### Length Distributions
+
+
+
+```{r}
+# Broad Distribution
+#log2 bins for easy-of-access
+#' @title Build Log 2 Bin Structure Dataframe
+#' 
+#' @description Used to build a dataframe containing equally spaced log2 bins for
+#' size spectra analysis. Contains details on the left and right limits, midpoint, bin width, 
+#' and a text label for the bins. log2bin number ascends with increasing size for eeasy plotting.
+#'
+#' @param log2_min 
+#' @param log2_max 
+#' @param log2_increment 
+#'
+#' @return
+#' @export
+#'
+#' @examples
+define_log2_bins <- function(log2_min = 0, log2_max = 13, log2_increment = 1){
+  
+  # How many bins
+  n_bins  <- length(seq(log2_max, log2_min + log2_increment, by = -log2_increment))
+  
+  # Build Equally spaced log2 bin df
+  log2_bin_structure <- data.frame(
+    "log2_bins" = as.character(seq(n_bins, 1, by = -1)),
+    "left_lim"  = seq(log2_max - log2_increment, log2_min, by = -log2_increment),
+    "right_lim" = seq(log2_max, log2_min + log2_increment, by = -log2_increment)) %>% 
+    mutate(
+      bin_label    = str_c(round(2^left_lim, 3), " - ", round(2^right_lim, 3), "g"),
+      bin_width    = 2^right_lim - 2^left_lim,
+      bin_midpoint = (2^right_lim + 2^left_lim) / 2) %>% 
+    arrange(left_lim)
+  
+  return(log2_bin_structure)
+}
+```
+
+```{r}
+#' @title Assign Manual log2 Bodymass Bins - By weight
+#'
+#' @description Manually assign log2 bins based on individual length-weight bodymass 
+#' in increments of 1 on the log2 scale. Returns data with bins assigned based on individual
+#' length-weight biomass
+#' 
+#' Uses maximum weight, and its corresponding bin as the limit.
+#'
+#' @param wmin_grams Catch data prepared for mle calculation, use prep_wmin_wmax
+#' @param log2_increment Equally spaced increments to use for log 2 bin sizes. Default = 0.5.
+#'
+#' @return
+#' @export
+#'
+#' @examples
+assign_log2_len_bins <- function(
+    size_increment_df, 
+    metric_col = "length_cm",  
+    log2_increment = 1){
+  
+  
+  #### 1. Set up bodymass bins
+  
+  # filter missing weights
+  size_data <- size_increment_df %>% 
+    mutate(
+      min_size = {{metric_col}},
+      max_size = {{metric_col}}) %>% 
+    filter(
+      min_size > 0,
+      is.na(min_size) == FALSE,
+      max_size > 0,
+      is.na(max_size) == FALSE)
+  
+  # Get bodymass on log2() scale
+  size_data$log2_size <- log2(size_data[[metric_col]])
+  
+  # Set up the bins - Pull min and max weights from data available
+  #min_bin <- floor(min(size_data$log2_weight))
+  min_bin <- 0
+  max_bin <- ceiling(max(size_data$log2_size))
+  
+  
+  # Build a bin key, could be used to clean up the incremental assignment or for apply style functions
+  log2_bin_structure <- define_log2_bins(
+    log2_min = min_bin, 
+    log2_max = max_bin, 
+    log2_increment = log2_increment)
+  
+  
+  
+  # Loop through bins to assign the bin details to the data
+  log2_assigned <- log2_bin_structure %>%
+    split(.$log2_bins) %>%
+    map_dfr(function(log2_bin){
+      
+      # limits and labels
+      l_lim   <- log2_bin$left_lim
+      r_lim   <- log2_bin$right_lim
+      bin_num <- as.character(log2_bin$log2_bin)
+      
+      # assign the label to the appropriate bodymasses
+      size_data %>% mutate(
+        log2_bins = ifelse(between(log2_size, l_lim, r_lim), bin_num, NA),
+        log2_bins = as.character(log2_bins)) %>%
+        drop_na(log2_bins)
+      
+    })
+  
+  # Join in the size bins
+  log2_assigned <- left_join(log2_assigned, log2_bin_structure, by = "log2_bins")
+  
+  # return the data with the bins assigned
+  return(log2_assigned)
+  
+}
+
+
+
+# # Test it
+# finfish_log2 <- assign_log2_len_bins(size_increment_df = finfish_in, metric_col = "length_cm")
+
+```
+
+```{r}
+#' @title Calculate Normalized and De-Normalized Abundances
+#'
+#' @description For binned size spectra estimation we use the stratified abundance divided by the
+#' bin widths (normalized size spectra). Another way to present the data is to de-normalize, which 
+#' takes those values and multiplies them by the mid-point of the log-scale bins.
+#' 
+#' min/max & bin_increments are used to enforce the presence of a size bin in the event that 
+#' there is no abundance. This is done for comparing across different groups/areas that should 
+#' conceivably have the same size range sampled.
+#'
+#' @param log2_assigned size data containing the bin assignments to use
+#' @param min_log2_bin Minimum 2^x value for the size spectra being measured (>=)
+#' @param max_log2_bin Maximum 2^x value for the size spectra being measured (<)
+#' @param bin_increment The bin-width on log scale that separates each bin
+#' @param ... Additional grouping factors with which to aggregate on besides the size bins themselves
+#'
+#' @return
+#' @export
+#'
+#' @examples
+aggregate_log2_len_bins <- function(
+    log2_assigned, 
+    min_log2_bin = 0, 
+    max_log2_bin = 13, 
+    bin_increment = 1,
+    ...){
+  
+  # Full Possible Bin Structure
+  # Fills in any gaps
+  log2_bin_structure <- define_log2_bins(
+    log2_min       = min_log2_bin, 
+    log2_max       = max_log2_bin, 
+    log2_increment = bin_increment)
+  
+  
+  # Capture all the group levels with a cheeky expand()
+  if(missing(...) == FALSE){
+    log2_bin_structure <- log2_bin_structure %>% 
+      tidyr::expand(left_lim, distinct(log2_assigned, ...)) %>% 
+      full_join(log2_bin_structure)
+  }
+  
+  
+  
+  # Get bin breaks
+  log2_breaks <- sort(
+    unique(c(log2_bin_structure$left_lim, log2_bin_structure$right_lim)))
+  
+  
+  # Get Totals for bodymass and abundances
+  log2_aggregates <- log2_assigned %>% 
+    group_by(left_lim, ...) %>% 
+    summarise(
+      abundance   = sum(numlen_adj, na.rm = T),
+      .groups = "drop")
+  
+  
+  # Join back in what the limits and labels are
+  # The defined bins and their labels enforce the size limits
+  log2_prepped <- left_join(
+    x = log2_bin_structure, 
+    y = log2_aggregates)
+  
+  
+  #### Fill Gaps with Zero's?? 
+  # This ensures that any size bin that is intended to be in use is actually used
+  log2_prepped <- log2_prepped %>% 
+    mutate(
+      abundance = ifelse(is.na(abundance), 1, abundance))
+  
+  
+  #### normalize abundances using the bin widths
+  log2_prepped <- log2_prepped %>% 
+    mutate(
+      normalized_abund = abundance / bin_width)
+  
+  # Add de-normalized abundances (abundance * bin midpoint)
+  log2_prepped <- log2_prepped %>% 
+    mutate(denorm_abund = normalized_abund * bin_midpoint)
+  
+  # Return the aggregations
+  return(log2_prepped)
+  
+}
+
+```
+
+
+```{r}
+#| label: finfish length distribution
+
+# Gotta change the columns that the bins are built on
+# Assign l2 bins
+finfish_log2_lens <- assign_log2_len_bins(
+  size_increment_df = finfish_in, 
+  metric_col = "length_cm", 
+  log2_increment = 1)
+
+# Aggregate on year, area, season
+finfish_season_len_aggs <- finfish_log2_lens %>% 
+  mutate(group_var = str_c(survey_area, "_", season)) %>% 
+  split(.$group_var) %>% 
+  map_dfr(
+    ~aggregate_log2_len_bins(
+      .x,
+      min_log2_bin = 0, 
+      max_log2_bin = 10, 
+      bin_increment = 1),
+    .id = "group_var") %>% 
+  separate(col = group_var, into = c("survey_area", "season")) %>% 
+  mutate(season = fct_rev(season))
+  
+
+# Plot
+ggplot(finfish_season_len_aggs, aes(2^left_lim, normalized_abund)) +
+  geom_col(aes(fill = season),  position = "dodge", alpha  = 0.4) +
+  geom_vline(xintercept = 1, linetype = 2, color = "red", linewidth = 1) +
+  geom_label(
+      data = data.frame(val = 1, label = "1cm"),
+      aes(x = val, y = I(0.5), label = label),
+      color = "red", label.size = 0.5, size = 2,
+      label.padding = unit(0.7, "lines"), label.r = unit(0.5, "lines")) +
+  scale_fill_gmri() +
+  scale_x_continuous(labels = label_log(base = 2), transform = "log2", breaks = 2^c(0:12)) +
+  scale_y_continuous(labels = label_log(base = 2), transform = "log2") +
+  facet_wrap(~survey_area, ncol = 1, scales = "fixed") +
+  labs(
+    x = "Length (cm)",
+    y = "Normalized Abundance\n(total abundance / bin width)",
+    color = "Season",
+    title = "Seasonal size spectrum for Wigley Species Subset")
+
+
+```
+
+
+
+
 
 ## Is it even Pareto?
 
-It is quite a pain to determine whether the data follow a pareto distribution in the first place. I'm unsure if the lines in the plots below faithfully follow how they are estimated and how to score goodness of fit for a probability density function. 
 
 This section from Edwards 2007 alludes to the ongoing debate on appropriateness of applying size spectra methods to empirical data.
 
 > The MLE method avoids binning and regression. Binning in general can be problematic (e.g. if a data set has no body masses <10 g but the lowest bin is defined as 8–16 g), and the choice of bin widths can affect the estimated slope (Vidondo et al. 1997). Regression-based methods are problematic because the intercept and the slope implicitly determine urn:x-wiley:2041210X:media:mee312641:mee312641-math-0064, which can erroneously be greater than some data values (James, Plank & Edwards 2011). They also assume that the errors in the logarithmic counts for each bin have the same variance, which may not be justified. Although regression can be understood in a likelihood context, this is different to explicitly using a likelihood-based method (Edwards et al. 2012).
-
-
 
 
 
@@ -1052,7 +1376,6 @@ This section from Edwards 2007 alludes to the ongoing debate on appropriateness 
 I'm just going to go ahead and do it and see:
 
 After doing some attempts to plot the impacts of moving it around, I am less convinced that its helping things and it may even be harming the situation. 
-
 
 In Krumsick et al. 2020 they determined visually that their data from the trawl data did not follow the distribution assumed by the MLE methodology and instead turned to normalized spectra using binned methods.
 
@@ -1135,7 +1458,7 @@ trend_predictions_16g <- get_preds_and_trendsignif(bmspectra_16g_mod_wig) %>%
     linewidth = 1, alpha = 1) +
   scale_fill_gmri() +
   scale_color_gmri() +
-   scale_y_continuous(limits = c(-2.5, -0.8)) +
+   scale_y_continuous() +
   facet_grid(survey_area ~ metric*community) +
   labs(
     x = "Year",
@@ -1164,7 +1487,7 @@ wigley_trends_1g <- ggplot() +
     linewidth = 1, alpha = 1) +
   scale_fill_gmri() +
   scale_color_gmri() +
-  scale_y_continuous(limits = c(-2.5, -0.8)) +
+  scale_y_continuous() +
   facet_grid(survey_area ~ metric*community) +
   labs(
     x = "Year",
