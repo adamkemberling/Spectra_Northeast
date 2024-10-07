@@ -10,7 +10,7 @@ format:
 execute:
   echo: true
   fig-width: 8
-  fig-height: 6
+  fig-height: 7
   message: false
   warning: false
 editor: source
@@ -410,12 +410,6 @@ The following plots and summaries will relate the Wigley species spectra to Temp
 ```{r}
 
 # # data limited community
-# ffish_medlen_model_df <- read_csv(here::here("Data/model_ready/large_community_medlength_mod.csv"))
-# ffish_lenspectra_model_df <- read_csv(here::here("Data/model_ready/large_community_lenspectra_mod.csv"))
-# 
-# # well studied community
-# wigley_medlen_model_df <- read_csv(here::here("Data/model_ready/wigley_community_medsize_mod.csv"))
-# wigley_lenspectra_model_df <- read_csv(here::here("Data/model_ready/wigley_community_lenspectra_mod.csv"))
 wigley_bmspectra_model_df <- read_csv(here::here("Data/model_ready/wigley_community_bmspectra_mod.csv"))
 
 # Use one for plots
@@ -434,7 +428,7 @@ wigley_bmspectra_model_df <- wigley_bmspectra_model_df %>%
 ###  Bottom Temperature Changes
 
 ```{r}
-wigley_bmspectra_model_df %>% 
+temp1 <- wigley_bmspectra_model_df %>% 
   ggplot(aes(est_year, bot_temp, color = season)) +
   geom_point(size = 0.8, alpha = 0.5) +
   geom_ma(size = 1, n = 5, ma_fun = SMA, linetype = 1) +
@@ -442,6 +436,47 @@ wigley_bmspectra_model_df %>%
   facet_wrap(~survey_area, ncol = 1) +
   scale_y_continuous(labels = label_number(suffix = "\u00b0C")) +
   labs(y = "Bottom Temperature", x = "Year", color = "5-Year Smooth")
+
+# Raincloud
+library(ggdist)
+
+temp2 <- wigley_bmspectra_model_df %>% 
+  ggplot(aes(fct_rev(survey_area), bot_temp, color = season, fill = season)) +
+   ggdist::stat_halfeye(
+     alpha = 0.4,
+     adjust = .5, 
+     width = .6, 
+    .width = 0, 
+    justification = -.2, 
+    point_colour = NA
+  ) + 
+  geom_boxplot(
+    fill = "transparent",
+    width = .15, 
+    outlier.shape = NA
+  ) +
+  ## add dot plots from {ggdist} package
+  ggdist::stat_dots(
+    ## orientation to the left
+    side = "left", size = 1,
+    ## move geom to the left
+    justification = 1.12, 
+    ## adjust grouping (binning) of observations 
+    binwidth = .25
+  ) + 
+  # geom_point(
+  #   ## draw horizontal lines instead of points
+  #   shape = 95,
+  #   size = 10,
+  #   alpha = .1) +
+  scale_color_gmri() + 
+  scale_fill_gmri() + 
+  scale_y_continuous(labels = label_number(suffix = "\u00b0C")) +
+  coord_flip() +
+  theme(legend.position = "none") +
+  labs(y = "Bottom Temperature", x = "", color = "Season")
+
+temp1 | temp2
 ```
 
 
@@ -452,11 +487,11 @@ wigley_bmspectra_model_df %>%
   distinct(est_year, survey_area, total_weight_lb) %>% 
   ggplot(aes(est_year, total_weight_lb/1e6)) +
   geom_col(alpha = 0.5) +
-  # geom_point(size = 0.8, alpha = 0.5) +
-  geom_ma(size = 1, n = 5, ma_fun = SMA, linetype = 1) +
+  geom_ma(aes(color = "5-Year Smooth"), size = 1, n = 5, ma_fun = SMA, linetype = 1) +
+  scale_color_manual(values = "orange") +
   facet_wrap(~survey_area, ncol = 1) +
   scale_y_continuous(labels = label_number(suffix = "M")) +
-  labs(y = "Total Landings (live lb.)", x = "Year")
+  labs(y = "Total Landings (live lb.)", x = "Year", color = "Moving Average")
 ```
 
 
@@ -464,6 +499,10 @@ wigley_bmspectra_model_df %>%
 ---
  
 ### Spiny Dogfish Sensitivity
+
+Spiny dogfish constitute a large majority fraction of biomass in the MAB during the Spring survey. Their numbers have also been increasing over time. This acts to shallow the spectra as they are one of the larger species routinely sampled by the trawl survey.
+
+If we remove them from the estimation and re-run the slopes this is what changes. 
 
 How much can one species shift the spectra, and is this a definitive/conclusive proof that its the dogfish shallowing the slope in MAB?
 
@@ -566,14 +605,13 @@ ggplot() +
 
 When I looked at large/small fish indices I looked at two metrics:
 
- - The large fish index (proportion of biomass total represented by fishes in top 5-10% of body sizes) 
- - The large species index
+ - The large fish index (proportion of yearly biomass totals represented by fishes in top 5-10% of body sizes) 
 
 We will focus on the former for the plots below. Fish size for the below plots will be based on length because these are measured for all individuals.
 
-Large fish will be considered anything over 73cm, representing the 95th percentile. Values are the fraction of total bodymass for a given season that is coming from the large fishes.
+Large fish will be considered anything over 55cm, representing the 90th percentile. Values are the fraction of total bodymass for a given season that is coming from the large fishes.
 
-The fraction of the biomass held in fishes larger than 73cm is lower in the two northern areas, and falling across both seasons. In SNE its declining in the spring, and in the MAB its increasing.
+The fraction of the biomass held in fishes larger than 55cm is lower in the two northern areas, and falling across both seasons. In SNE its declining in the spring, and in the MAB its increasing.
 
 ```{r}
 ##### Large Fish Index  ####
@@ -583,10 +621,12 @@ The fraction of the biomass held in fishes larger than 73cm is lower in the two 
 DescTools::Quantile(
   wigley_in$length_cm, 
   weights = wigley_in$numlen_adj, 
-  probs = c(0.1, 0.5, 0.90))
+  probs = c(0.05, 0.1, 0.5, 0.90, .95))
 
 wigley_in <- wigley_in %>% 
-  mutate(large = ifelse(length_cm > 73, T, F))
+  mutate(
+    large = ifelse(length_cm > 55, T, F),
+    small = ifelse(length_cm < 10, T, F))
 
 
 
@@ -602,26 +642,64 @@ total_bio <-  wigley_in %>%
 lf_bio <- wigley_in %>% 
   group_by(survey_area, est_year, season) %>% 
   summarise(
+    small_bio = sum(sum_weight_kg * small),
     large_bio = sum(sum_weight_kg * large),
     .groups = "drop")
 
 # Join and divide
 lfi <- left_join(total_bio, lf_bio) %>% 
-  mutate(LFI = large_bio / total_bio)  %>% 
+  mutate(LFI = large_bio / total_bio,
+         SFI = small_bio / total_bio)  %>% 
   mutate(survey_area = factor(survey_area, levels = area_levels))
 
 # trendz
-# Get trends for no dogfish
+# Get trends for large and small fish index
 lfi_mod <- lmer(
   formula = LFI ~ est_year * survey_area * season + (1|est_year),
   data = lfi)
+sfi_mod <- lmer(
+  formula = SFI ~ est_year * survey_area * season + (1|est_year),
+  data = lfi)
 
+# Significant trends
 lfi_predictions <- get_preds_and_trendsignif(lfi_mod) %>% 
+  mutate(survey_area = factor(survey_area, levels = area_levels))
+sfi_predictions <-  get_preds_and_trendsignif(sfi_mod) %>% 
   mutate(survey_area = factor(survey_area, levels = area_levels))
 
 
+
+
+# Plot the SFI
+sfi_p <- ggplot() +
+  geom_ribbon(
+    data = filter(sfi_predictions, non_zero == TRUE),
+    aes(x, ymin = conf.low, ymax = conf.high, fill = season),
+    linewidth = 1, alpha = 0.35) +
+
+  geom_point(
+    data = lfi, aes(est_year, SFI, color = season),
+    size = 0.8, alpha = 0.5) +
+    geom_line(
+    data = filter(sfi_predictions, non_zero == TRUE),
+    aes(x, predicted, color = season),
+    linewidth = 1, alpha = 1) +
+  scale_fill_gmri() +
+  scale_color_gmri() +
+  scale_y_continuous(
+    # limits = c(0,1), 
+    labels = label_percent()) +
+  facet_grid(survey_area~., scales = "free") +
+  labs(
+    x = "Year",
+    y = "Percentage of Total Biomass",
+    title = "Small Fish Index (<10 cm)",
+    fill = "Season",
+    color = "Season")
+
+
 # Plot the LFI
-ggplot() +
+lfi_p <- ggplot() +
   geom_ribbon(
     data = filter(lfi_predictions, non_zero == TRUE),
     aes(x, ymin = conf.low, ymax = conf.high, fill = season),
@@ -636,29 +714,40 @@ ggplot() +
     linewidth = 1, alpha = 1) +
   scale_fill_gmri() +
   scale_color_gmri() +
-  scale_y_continuous(limits = c(0,1)) +
+  scale_y_continuous(
+    limits = c(0,1), 
+    labels = label_percent()) +
   facet_grid(survey_area~., scales = "free") +
   labs(
     x = "Year",
-    y = "Large Fish Index",
-    title = "Large Fish Index",
+    y = "Percentage of Total Biomass",
+    title = "Large Fish Index (>55cm)",
     fill = "Season",
     color = "Season")
 
+
+
+
+sfi_p | lfi_p
 
 ```
 
 The following species are those which has representation in the large fish index:
 
 ```{r}
-wigley_in %>% 
+big_fishes <- wigley_in %>% 
   filter(large) %>% 
   distinct(comname) %>% 
   arrange(comname) %>% 
-  rename(`Common Name:` = comname) %>% 
-  gt() %>%
-  tab_header(title = "Large Fishes")
+  rename(`Common Name:` = comname) 
 
+# big_fishes %>% 
+#   gt() %>%
+#   tab_header(title = "Large Fishes")
+
+
+library(pander)
+pander(big_fishes$`Common Name:`)
 
 ```
 
@@ -673,6 +762,9 @@ shelf_papers <- tribble(
   "Friedland et al.", 2024, "Body size has declined despite more abundance & biomass. Competition is preventing larger sizes.",
   "Krumsick", 2020, "Empirical slopes from trawl survey in labrador sea were steeper than theoretical from nitrogen stable isotope ratios"
 )
+
+
+shelf_papers %>% gt()
 ```
 
 
@@ -680,14 +772,21 @@ shelf_papers <- tribble(
 __________________
 
 
-# Methodology Hangups
+# Methodology Hangups (New)
 
 I do not have confidence that the values we have for slopes presently:
 
- * Represent the actual distribution of the data (mis-application of an assumed distribution)   
+ * Represent the actual distribution of the data (mis-application of an assumed pareto distribution)   
  * Are representative of some meaningful feature of the community (the slope from the above mis-application has no meaning)    
+ 
+ I also don't know whether slopes are comparable across regions
+ 
+ 
+```{r}
 
-I've changed it about fifty times now, and I am concerned that people are now convinced of a story despite these values not meaning what we are assuming they mean.
+```
+ 
+
 
 
 ### Thoughts on Min/Max Parameters

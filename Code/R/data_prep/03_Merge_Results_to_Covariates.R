@@ -40,11 +40,12 @@ area_df <- data.frame(
 # landings_annual <- read_csv(here::here("Data/processed/GARFO_regional_finfish_landings.csv")) %>% 
 
 # From Andy Beet
-landings_annual <- read_csv(here::here("Data/processed/GARFO_regional_finfish_landings.csv")) %>% 
+landings_annual <- read_csv(here::here("Data/processed/BEET_GARFO_regional_finfish_landings.csv")) %>% 
   rename(area = survey_area,
          est_year = year) %>% 
   left_join(area_df) %>% 
-  select(survey_area, est_year, total_weight_lb = total_live_lb)
+  select(survey_area, est_year, 
+         total_weight_lb = total_live_lb)
 
 
 

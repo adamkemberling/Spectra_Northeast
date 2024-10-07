@@ -67,10 +67,6 @@ landings <- landings %>%
 #       `Id` %in% fish_zones$"Southern New England" ~ "Southern New England",
 #       `Id` %in% fish_zones$"Mid-Atlantic Bight" ~ "Mid-Atlantic Bight")) %>% 
 #   filter(survey_area %in% c("Georges Bank", "Gulf of Maine", "Southern New England", "Mid-Atlantic Bight"))
-# 
-# ggplot(stat_zones) +
-#   geom_sf(aes(fill = survey_area))
-# write_sf(stat_zones, here::here("Data/raw/nmfs_statareas_collection.geojson"))
 
 
 
@@ -81,6 +77,7 @@ landings %>% distinct(sppname) %>% pull() %>% sort()
 # Filter the freshwater species out
 landings <- landings %>% 
   filter(
+    !str_detect(sppname, "crab"),
     !str_detect(sppname, "catfish"),
     !str_detect(sppname, "carp"),
     !str_detect(sppname, "crappie"),
@@ -98,7 +95,7 @@ landings <- landings %>%
 
 # Get Summaries
 landings_summ <- landings %>% 
-  mutate("live_lb"   = mtlive * 2204.62) %>% 
+  mutate(live_lb = mtlive * 2204.62) %>% 
   group_by(year, survey_area) %>% 
   summarise( 
     across(
@@ -112,7 +109,25 @@ landings_summ <- landings %>%
 # Save those
 write_csv(landings_summ, here::here("Data/processed/BEET_GARFO_regional_finfish_landings.csv"))
 
+# wtf is happening in 2023 - huge menhaden catch
+landings_summ %>% filter(survey_area == "Mid-Atlantic Bight", year == 2023)
+landings %>% 
+  filter(year == 2023) %>% 
+  filter(survey_area == "Mid-Atlantic Bight")  %>% 
+  group_by(common_name) %>% 
+  summarise(mtlive = sum(mtlive, na.rm = T)) %>% 
+  mutate(live_lb = mtlive * 2204.62) %>% 
+  arrange(desc(mtlive))
 
+landings %>% 
+  filter(year == 2010) %>% 
+  filter(survey_area == "Mid-Atlantic Bight")  %>% 
+  group_by(common_name) %>% 
+  summarise(mtlive = sum(mtlive, na.rm = T)) %>% 
+  mutate(live_lb = mtlive * 2204.62) %>% 
+  arrange(desc(mtlive))
+
+#landings %>% filter(year == 2012) %>% filter(survey_area == "Mid-Atlantic Bight")%>% group_by(common_name) %>% summarise(mtlive = sum(mtlive, na.rm = T)) %>% arrange(desc(mtlive)) %>% pull(mtlive) %>% sum()
 
 
 
@@ -121,10 +136,9 @@ kmills_garfo <- read_csv(here::here("Data/processed/GARFO_regional_finfish_landi
 
 
 ggplot() +
-  geom_line(
-    data = landings_summ, aes(year, total_live_lb, color = "Andy Landings")) +
-  geom_line(
-    data = kmills_garfo, aes(year, total_live_lb, color = "Old Landings")) +
+  geom_line(data = landings_summ, aes(year, total_live_lb, color = "Andy Landings")) +
+  geom_line(data = kmills_garfo, aes(year, total_live_lb, color = "Old Landings")) +
+  scale_x_continuous(breaks = seq(1970, 2020, 10)) +
   facet_wrap(~survey_area)
 
 
