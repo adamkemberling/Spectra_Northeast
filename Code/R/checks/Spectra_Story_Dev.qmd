@@ -39,6 +39,8 @@ conflicted::conflict_prefer("select", "dplyr")
 conflicted::conflict_prefer("filter", "dplyr")
 conflicted::conflicts_prefer(lmerTest::lmer)
 
+
+
 # ggplot theme
 theme_set(
   theme_gmri(
@@ -47,9 +49,17 @@ theme_set(
     axis.text.x = element_text(size = 8),
     legend.position = "bottom"))
 
+
+
 # vectors for factor levels
 area_levels <- c("GoM", "GB", "SNE", "MAB")
 area_levels_long <- c("Gulf of Maine", "Georges Bank", "Southern New England", "Mid-Atlantic Bight")
+# table to join for swapping shorthand for long-hand names
+area_df <- data.frame(
+  area = c("Scotian Shelf", "Gulf of Maine", "Georges Bank", "Southern New England", "Mid-Atlantic Bight", "All"),
+  survey_area = c("SS", "GoM", "GB", "SNE", "MAB", "Northeast Shelf"),
+  area_titles = c("Scotian Shelf", "Gulf of Maine", "Georges Bank", "Southern New England", "Mid-Atlantic Bight", "Northeast Shelf"))
+
 
 # Degree symbol
 deg_c <- "\u00b0C"
@@ -768,21 +778,56 @@ shelf_papers %>% gt()
 ```
 
 
+There are a couple core ideas about what changes have occurred or have been ocurring over the Northeast Shelf with relevance to the community that is sampled by the trawl survey:
+
 
 __________________
 
 
 # Methodology Hangups (New)
 
-I do not have confidence that the values we have for slopes presently:
+I lack confidence that the values we have for slopes presently:
 
  * Represent the actual distribution of the data (mis-application of an assumed pareto distribution)   
- * Are representative of some meaningful feature of the community (the slope from the above mis-application has no meaning)    
+ * Are representative of some meaningful feature of the community (local changes in slope over some range of body-sizes has less meaning than what has been ascribed to it)    
  
- I also don't know whether slopes are comparable across regions
+ I also don't know whether slopes are comparable across regions. This last point is more important salient when comparing absolute values shift when min/max parameters change (below).
  
+Keeping with the original 1g minimum size parameterization. We see these distributions in the wigley species bodymass spectra:
  
 ```{r}
+#| label: comparison across regions
+
+
+wigley_bmspectra_model_df %>% 
+  ggplot(aes(fct_rev(survey_area), b, color = season, fill = season)) +
+  ggdist::stat_halfeye(
+     alpha = 0.4,
+     adjust = .5, 
+     width = .6, 
+    .width = 0, 
+    justification = -.2, 
+    point_colour = NA
+  ) + 
+  geom_boxplot(
+    fill = "transparent",
+    width = .15, 
+    outlier.shape = NA) +
+  ## add dot plots from {ggdist} package
+  ggdist::stat_dots(
+    ## orientation to the left
+    side = "left", size = 1,
+    ## move geom to the left
+    justification = 1.12, 
+    ## adjust grouping (binning) of observations 
+    binwidth = .005) + 
+  scale_color_gmri() + 
+  scale_fill_gmri() + 
+  coord_flip() +
+  labs(
+    y = "Exponent of Individual Body Mass Distribution", 
+    x = "",
+    title = "Exponent of Individual Mass Distribution (1g - Max)")
 
 ```
  
@@ -791,7 +836,11 @@ I do not have confidence that the values we have for slopes presently:
 
 ### Thoughts on Min/Max Parameters
 
-Our hypotheses both relate primarily to abundance of non-age0 fishes. It might make sense to move the minimum size up to something larger. This will accomplish two things: 1) lower any noise in median size or spectra slope that results from large recruit cohorts & 2) help ensure that the size range we're estimating spectra for are fully selected by the gear.
+Our change in growth and fisheries removal hypotheses both relate primarily to abundance of non-age0 fishes. 
+
+It might make sense if that is where we are focused to move the minimum size up to something larger and minimize the impact poorly selected size classes and large recruitment events have on the community distribution. 
+
+This will accomplish two things: 1) lower any noise in median size or spectra slope that results from large recruit cohorts & 2) help ensure that the size range we're estimating spectra for are fully selected by the gear.
 
 Currently a 1g minimum size is likely lower than the mesh size selectivity. 
 
@@ -839,9 +888,16 @@ lme_params %>% gt()
 
 
 
+The following plot shows what the distribution looks like for all data (years, seasons, areas) over the range of sizes we are allowing to contribute to the estimation of seasonal spectra. The data are binned into log2 increments. This isn't the same method we are using for slope estimates, but at an aggregate level like this it is an un-biased approximator of the individual size distribution.
+
+I've highlighted where a minimum body size of 1g sits on this curve to mark where it sits. If the data from the survey were following a pareto distribution over the full range in sizes I would anticipate successive bins to decline, and not increase or remain level for several size ranges to eventually begin declining.
+
 
 
 ```{r}
+#| label: log2 bin functions
+
+
 # Broad Distribution
 #log2 bins for easy-of-access
 #' @title Build Log 2 Bin Structure Dataframe
@@ -876,9 +932,12 @@ define_log2_bins <- function(log2_min = 0, log2_max = 13, log2_increment = 1){
   
   return(log2_bin_structure)
 }
-```
 
-```{r}
+
+
+
+
+
 #' @title Assign Manual log2 Bodymass Bins - By weight
 #'
 #' @description Manually assign log2 bins based on individual length-weight bodymass 
@@ -948,9 +1007,14 @@ assign_log2_bins <- function(wmin_grams, log2_increment = 1){
   return(log2_assigned)
   
 }
-```
 
-```{r}
+
+
+
+
+
+
+
 #' @title Calculate Normalized and De-Normalized Abundances
 #'
 #' @description For binned size spectra estimation we use the stratified abundance divided by the
@@ -1048,52 +1112,49 @@ aggregate_log2_bins <- function(
 
 
 
-The following plots shows what the distribution looks like for all data (years, seasons, areas) over the range of sizes we are allowing to contribute to the estimation of seasonal spectra. I've highlighted where a minimum body size of 1g sits on this curve to mark where it sits.
-
-
 ```{r}
 #| label: body weight binned overall
 
 # Assign l2 bins
 wigley_log2 <- assign_log2_bins(wigley_in, log2_increment = 1)
 
-# Aggregate on year, area, season
-wigley_all_aggs <- wigley_log2 %>% 
-  aggregate_log2_bins(
-    .,
-    min_log2_bin = 0, 
-    max_log2_bin = 10, 
-    bin_increment = 1)
+# # Aggregate on year, area, season
+# wigley_all_aggs <- wigley_log2 %>% 
+#   aggregate_log2_bins(
+#     .,
+#     min_log2_bin = 0, 
+#     max_log2_bin = 10, 
+#     bin_increment = 1)
+# 
+# # Plot
+# ggplot(wigley_all_aggs, aes(2^left_lim, normalized_abund)) +
+#   geom_col() +
+#   geom_vline(xintercept = 1, linetype = 2, color = "red", linewidth = 1) +
+#   geom_label(
+#       data = data.frame(val = 1, label = "Current\nMinimum\nSize\nCutoff:\n1g"), 
+#       aes(x = val, y = I(0.5), label = label), 
+#       color = "red", label.size = 1,
+#       label.padding = unit(0.7, "lines"), label.r = unit(0.5, "lines")) +
+#   geom_vline(xintercept = 2^4, linetype = 2, color = "royalblue", linewidth = 1) +
+#   geom_label(
+#       data = data.frame(val = 2^4, label = "More\nLikely\nFully\nSelected:\n16g"), 
+#       aes(x = val, y = I(0.5), label = label), 
+#       color = "royalblue", label.size = 1,
+#       label.padding = unit(0.7, "lines"), label.r = unit(0.5, "lines")) +
+#   scale_x_continuous(labels = label_log(base = 2), transform = "log2", breaks = 2^c(0:12)) +
+#   scale_y_continuous(labels = label_log(base = 2), transform = "log2") +
+#   labs(
+#     x = "Individual Body Weight (g)",
+#     y = "Normalized Abundance\n(total abundance / bin width)",
+#   title = "All-year, all-season size spectrum for Wigley Species Subset")
 
-# Plot
-ggplot(wigley_all_aggs, aes(2^left_lim, normalized_abund)) +
-  geom_col() +
-  geom_vline(xintercept = 1, linetype = 2, color = "red", linewidth = 1) +
-  geom_label(
-      data = data.frame(val = 1, label = "Current\nMinimum\nSize\nCutoff:\n1g"), 
-      aes(x = val, y = I(0.5), label = label), 
-      color = "red", label.size = 1,
-      label.padding = unit(0.7, "lines"), label.r = unit(0.5, "lines")) +
-  geom_vline(xintercept = 2^4, linetype = 2, color = "royalblue", linewidth = 1) +
-  geom_label(
-      data = data.frame(val = 2^4, label = "More\nLikely\nFully\nSelected:\n16g"), 
-      aes(x = val, y = I(0.5), label = label), 
-      color = "royalblue", label.size = 1,
-      label.padding = unit(0.7, "lines"), label.r = unit(0.5, "lines")) +
-  scale_x_continuous(labels = label_log(base = 2), transform = "log2", breaks = 2^c(0:12)) +
-  scale_y_continuous(labels = label_log(base = 2), transform = "log2") +
-  labs(
-    x = "Individual Body Weight (g)",
-    y = "Normalized Abundance\n(total abundance / bin width)",
-  title = "All-year, all-season size spectrum for Wigley Species Subset")
+
+
   
 
 ```
 
-I picked 16g here basically eyeballing things, but my point is mostly that I think there is a need and an advantage to shifting the minimum size. We could probably be more scientific and look at the mesh size used (codend liner 1 inch stretched diamond mesh), but I think precision there is less important that being closer than we are now.
 
-
-In all regions it seems like the typical linear slope begins at a larger size than 1g.
 
 ```{r}
 # Aggregate on year, area, season
@@ -1133,13 +1194,16 @@ ggplot(wigley_season_aggs, aes(2^left_lim, normalized_abund)) +
   labs(
     x = "Individual Body Weight (g)",
     y = "Normalized Abundance\n(total abundance / bin width)",
-    color = "Season",
+    fill = "Season",
     title = "All-year, Seasonal size spectrum for Wigley Species Subset")
   
 ```
 
 
-If we take a year at random the distributions are even more patchy:
+I picked 16g here basically eyeballing things, but my point is mostly that I think there is a need and an advantage to shifting the minimum size. We could probably be more scientific and look at the mesh size used (codend liner 1 inch stretched diamond mesh), but I think precision there is less important that being closer than we are now.
+
+
+In all regions it seems like the typical linear slope begins at a larger size than 1g. If we take a year at random the distributions are even more patchy AND we may potentially introduce situations where the min-max size range is quite small (no large fishes sampled).
 
 ```{r}
 
@@ -1187,19 +1251,18 @@ ggplot(wigley_season_aggs, aes(2^left_lim, normalized_abund)) +
 ```
 
 
-There is a similar lack of tuning for maximum weight/length as well. For maximum size we presently take the maximum individual size in that area-year-season unit. While this also affects the distribution shape I am less concerned with this for now.
-
-However. If we revert to the binning methods we may encounter issues where bins exist in some years and are NA in others.
-
 Here is what the length distirbution looks like for the broader finfish community:
 
 
 
 ### Length Distributions
 
-
+The length distributions look even more flat than the biomass distributions, basically ending at the 128-256cm bin.
 
 ```{r}
+#| label: log length functions
+
+
 # Broad Distribution
 #log2 bins for easy-of-access
 #' @title Build Log 2 Bin Structure Dataframe
@@ -1234,9 +1297,11 @@ define_log2_bins <- function(log2_min = 0, log2_max = 13, log2_increment = 1){
   
   return(log2_bin_structure)
 }
-```
 
-```{r}
+
+
+
+
 #' @title Assign Manual log2 Bodymass Bins - By weight
 #'
 #' @description Manually assign log2 bins based on individual length-weight bodymass 
@@ -1319,9 +1384,12 @@ assign_log2_len_bins <- function(
 # # Test it
 # finfish_log2 <- assign_log2_len_bins(size_increment_df = finfish_in, metric_col = "length_cm")
 
-```
 
-```{r}
+
+
+
+
+
 #' @title Calculate Normalized and De-Normalized Abundances
 #'
 #' @description For binned size spectra estimation we use the stratified abundance divided by the
@@ -1459,8 +1527,6 @@ ggplot(finfish_season_len_aggs, aes(2^left_lim, normalized_abund)) +
 
 
 
-
-
 ## Is it even Pareto?
 
 
@@ -1468,19 +1534,19 @@ This section from Edwards 2007 alludes to the ongoing debate on appropriateness 
 
 > The MLE method avoids binning and regression. Binning in general can be problematic (e.g. if a data set has no body masses <10 g but the lowest bin is defined as 8–16 g), and the choice of bin widths can affect the estimated slope (Vidondo et al. 1997). Regression-based methods are problematic because the intercept and the slope implicitly determine urn:x-wiley:2041210X:media:mee312641:mee312641-math-0064, which can erroneously be greater than some data values (James, Plank & Edwards 2011). They also assume that the errors in the logarithmic counts for each bin have the same variance, which may not be justified. Although regression can be understood in a likelihood context, this is different to explicitly using a likelihood-based method (Edwards et al. 2012).
 
+Other authors have raised this issue, but there is no clear advisement on how to assess/approach situations where the pareto or power law distributions are not appropriate. In Krumsick et al. 2020 they determined visually that their data from the trawl data did not follow the distribution assumed by the MLE methodology and instead turned to normalized spectra using binned methods.
 
 
-
-## What if we shifted minimum size to 16g?
+# What if we shifted minimum size to 16g?
 
 I'm just going to go ahead and do it and see:
 
-After doing some attempts to plot the impacts of moving it around, I am less convinced that its helping things and it may even be harming the situation. 
+After doing some attempts to plot the impacts of moving it around, I am less convinced that its helping things and it may even be harming the situation as the range between min/max sizes can become quite small. 
 
-In Krumsick et al. 2020 they determined visually that their data from the trawl data did not follow the distribution assumed by the MLE methodology and instead turned to normalized spectra using binned methods.
+
 
 ```{r}
-#| eval: false
+#| eval: true
 #| label: refit spectra for 16g minimum
 
 # Load processing functions
@@ -1489,34 +1555,40 @@ library(sizeSpectra)
 source(here::here("Code/R/Processing_Functions.R"))
 
 
-# Run the year, season, area fits for the filtered data
-wigley_bmspectra_16 <- group_binspecies_spectra(
-  ss_input = filter(wigley_in, wmin_g >=16),
-  grouping_vars = c("est_year", "season", "survey_area"),
-  abundance_vals = "numlen_adj",
-  length_vals = "length_cm",
-  use_weight = TRUE,
-  isd_xmin = 16,
-  global_min = TRUE,
-  isd_xmax = NULL,
-  global_max = FALSE,
-  bin_width = 1,
-  vdiff = 2)
+# # Run the year, season, area fits for the filtered data
+# wigley_bmspectra_16 <- group_binspecies_spectra(
+#   ss_input = filter(wigley_in, wmin_g >=16),
+#   grouping_vars = c("est_year", "season", "survey_area"),
+#   abundance_vals = "numlen_adj",
+#   length_vals = "length_cm",
+#   use_weight = TRUE,
+#   isd_xmin = 16,
+#   global_min = TRUE,
+#   isd_xmax = NULL,
+#   global_max = FALSE,
+#   bin_width = 1,
+#   vdiff = 2)
 
 # # Save those
 # write_csv(
 #   wigley_bmspectra_16,
 #   here::here("Data/processed/wigley_species_min16_bodymass_spectra.csv"))
-```
 
 
-```{r}
 # Read them in, do some plotting
 wigley_bmspectra_16 <- read_csv(
   here::here("Data/processed/wigley_species_min16_bodymass_spectra.csv")) %>% 
-  mutate(survey_area = fct_relevel(survey_area, area_levels))
+  left_join(area_df) %>% 
+  mutate(
+    survey_area = fct_relevel(survey_area, area_levels),
+    size_range = xmax_actual - xmin_actual,
+    area_titles = factor(area_titles, area_levels_long))
 
 ```
+
+### Trend Consequences
+
+With respect to trends, we lose the fall steepening ocurring in the Gulf of Maine, otherwise the direction of trends remain the same.
 
 
 ```{r}
@@ -1532,9 +1604,8 @@ bmspectra_16g_mod_wig <- lmer(
 # Get the predictions and flag whether they are significant
 trend_predictions_16g <- get_preds_and_trendsignif(bmspectra_16g_mod_wig) %>% 
   mutate(model_id = "bodymass_spectra-Wigley Subset, 16g min") %>% 
-  separate(model_id, into = c("metric", "community"), sep = "-") %>% 
-  mutate(metric = fct_rev(metric),
-         survey_area = fct_relevel(survey_area, area_levels))
+  separate(model_id, into = c("metric", "community"), sep = "-") %>%
+  mutate(metric = fct_rev(metric), survey_area = fct_relevel(survey_area, area_levels))
 
 
 
@@ -1543,7 +1614,7 @@ trend_predictions_16g <- get_preds_and_trendsignif(bmspectra_16g_mod_wig) %>%
 # Plot significant trends over observed data
 
 # Make the plot
- spectra_trends_16g <- ggplot() +
+spectra_trends_16g <- ggplot() +
    geom_ribbon(
     data = filter(trend_predictions_16g, non_zero == TRUE),
     aes(x, ymin = conf.low, ymax = conf.high, fill = season),
@@ -1558,7 +1629,7 @@ trend_predictions_16g <- get_preds_and_trendsignif(bmspectra_16g_mod_wig) %>%
     linewidth = 1, alpha = 1) +
   scale_fill_gmri() +
   scale_color_gmri() +
-   scale_y_continuous() +
+  scale_y_continuous() +
   facet_grid(survey_area ~ metric*community) +
   labs(
     x = "Year",
@@ -1600,7 +1671,140 @@ wigley_trends_1g <- ggplot() +
 ```
 
 
+### Across Group Difference Consequences
 
+One of the original hypotheses was that under warming the size distribution in the Northern, colder regions would begin to resemble the size distributions of more southern, warmer regions.
+
+To be directly comparable I had thought it might be important to restrict the range of sizes that we consider when estimating the exponent of the individual size distribution.
+
+ 
+Before I plotted this I was concerned about the absolute values shifting in a meaningful way. I'm less concerned now.
+
+```{r}
+
+
+
+dist_plot_1g <- wigley_bmspectra_model_df %>% 
+  ggplot(aes(fct_rev(survey_area), b, color = season, fill = season)) +
+  ggdist::stat_halfeye(
+     alpha = 0.4,
+     adjust = .5, 
+     width = .6, 
+    .width = 0, 
+    justification = -.2, 
+    point_colour = NA
+  ) + 
+  geom_boxplot(
+    fill = "transparent",
+    width = .15, 
+    outlier.shape = NA) +
+  ## add dot plots from {ggdist} package
+  ggdist::stat_dots(
+    ## orientation to the left
+    side = "left", size = 1,
+    ## move geom to the left
+    justification = 1.12, 
+    ## adjust grouping (binning) of observations 
+    binwidth = .005) + 
+  scale_color_gmri() + 
+  scale_fill_gmri() + 
+  coord_flip() +
+  labs(
+    y = "Exponent of Individual Body Mass Distribution", 
+    x = "",
+    title = "Exponent of Individual Mass Distribution (1g - Max)")
+
+
+
+dist_plot_16g <- wigley_bmspectra_16 %>% 
+  mutate(season = fct_rev(season)) %>% 
+ggplot(aes(fct_rev(area_titles), b, color = season, fill = season)) +
+   ggdist::stat_halfeye(
+     alpha = 0.4,
+     adjust = .5, 
+     width = .6, 
+    .width = 0, 
+    justification = -.2, 
+    point_colour = NA
+  ) + 
+  geom_boxplot(
+    fill = "transparent",
+    width = .15, 
+    outlier.shape = NA) +
+  ## add dot plots from {ggdist} package
+  ggdist::stat_dots(
+    ## orientation to the left
+    side = "left", size = 1,
+    ## move geom to the left
+    justification = 1.12, 
+    ## adjust grouping (binning) of observations 
+    binwidth = .005) + 
+  scale_color_gmri() + 
+  scale_fill_gmri() + 
+  coord_flip() +
+  labs(
+    y = "Exponent of Individual Body Mass Distribution", 
+    x = "",
+    title = "Exponent of Individual Mass Distribution (16g - Max)")
+
+
+
+dist_plot_1g | dist_plot_16g
+
+```
+
+
+### Size Ranges Covered by ISD Fitting
+
+The below plot shows the variance in min-max size ranges for the size distribution fits. There is a much larger range in the Mid-Atlantic. 
+
+We may want to drop some outliers there.
+
+
+
+```{r}
+
+
+wigley_bmspectra_model_df %>% 
+  left_join(area_df) %>% 
+  mutate(size_range = xmax_actual - xmin_actual) %>% 
+  ggplot(aes(fct_rev(area_titles), size_range,  color = season, fill = season)) +
+  ggdist::stat_halfeye(
+     alpha = 0.4,
+     adjust = .5, 
+     width = .6, 
+    .width = 0, 
+    justification = -.2, 
+    point_colour = NA) + 
+  geom_boxplot(
+    fill = "transparent",
+    width = .15, 
+    outlier.shape = NA) +
+  ## add dot plots from {ggdist} package
+  ggdist::stat_dots(
+    ## orientation to the left
+    side = "left", size = 1,
+    ## move geom to the left
+    justification = 1.12, 
+    ## adjust grouping (binning) of observations 
+    binwidth = 2500) + 
+  scale_color_gmri() + 
+  scale_fill_gmri() + 
+  coord_flip() +
+  scale_y_continuous(labels = label_number(suffix = "g")) +
+  labs(
+    title = "Variability in the Size Range for Spectra Estimate",
+    x = "",
+    y = "Size Range Used for Size Distribution Estimation")
+
+```
+
+
+
+
+### Visualizing Size Distribution "Fits"
+
+Everything below might have a bug so don't obsess over these fit plots for the time being.
 
 
 ```{r}
