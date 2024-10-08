@@ -36,6 +36,7 @@ library(performance)
 library(gtsummary)
 library(gt)
 library(sizeSpectra)
+library(ggdist)
 conflicted::conflict_prefer("select", "dplyr")
 conflicted::conflict_prefer("filter", "dplyr")
 conflicted::conflicts_prefer(lmerTest::lmer)
@@ -478,6 +479,8 @@ wigley_bmspectra_model_df <- wigley_bmspectra_model_df %>%
 
 ###  Bottom Temperature Changes
 
+Bottom temperatures have increased in all four regions. The distribution of seasonal bottom temperatures are such that Gulf of Maine experiences a much smaller difference in seasonal temperature swings than the other regions.
+
 ```{r}
 temp1 <- wigley_bmspectra_model_df %>% 
   ggplot(aes(est_year, bot_temp, color = season)) +
@@ -488,9 +491,8 @@ temp1 <- wigley_bmspectra_model_df %>%
   scale_y_continuous(labels = label_number(suffix = "\u00b0C")) +
   labs(y = "Bottom Temperature", x = "Year", color = "5-Year Smooth")
 
-# Raincloud
-library(ggdist)
 
+# Plot the distribution as a raincloud plot
 temp2 <- wigley_bmspectra_model_df %>% 
   ggplot(aes(fct_rev(survey_area), bot_temp, color = season, fill = season)) +
    ggdist::stat_halfeye(
@@ -528,6 +530,62 @@ temp2 <- wigley_bmspectra_model_df %>%
   labs(y = "Bottom Temperature", x = "", color = "Season")
 
 temp1 | temp2
+```
+
+
+The overlap in bottom temperature distributions is very similar to the overlap in mass spectra exponents.
+
+
+```{r}
+#| label: comparison across regions
+
+
+wigley_b_dist_plot <- wigley_bmspectra_model_df %>% 
+  ggplot(aes(fct_rev(survey_area), b, color = season, fill = season)) +
+  ggdist::stat_halfeye(
+     alpha = 0.4,
+     adjust = .5, 
+     width = .6, 
+    .width = 0, 
+    justification = -.2, 
+    point_colour = NA) + 
+  geom_boxplot(
+    fill = "transparent",
+    width = .15, 
+    outlier.shape = NA) +
+  ## add dot plots from {ggdist} package
+  ggdist::stat_dots(
+    ## orientation to the left
+    side = "left", size = 1,
+    ## move geom to the left
+    justification = 1.12, 
+    ## adjust grouping (binning) of observations 
+    binwidth = .005) + 
+  scale_color_gmri() + 
+  scale_fill_gmri() + 
+  coord_flip() +
+  labs(
+    y = "ISD Exponent", 
+    x = "",
+    title = "Individual Body Mass Distribution (1g - Max)")
+
+
+
+# Plot next to bottom temperatures
+wigley_b_dist_plot | temp2
+```
+
+Which makes me lean towards thinking that the size distribution is responsive to the ambient water temperatures, and perhaps less stationary and responsive to long-term trends in some area.
+
+
+```{r}
+wigley_bmspectra_model_df %>% 
+  ggplot(aes(bot_temp, b)) +
+  geom_point(aes(color = season, shape = survey_area)) +
+  geom_smooth(method = "lm", color = "black") +
+  scale_color_gmri() +
+  scale_x_continuous(labels = label_number(suffix = deg_c)) +
+  labs(title = "Broad Relationship to Ambient Bottom Temperature")
 ```
 
 
@@ -1045,11 +1103,10 @@ I have also struggled with what these "faceless" values represent, and whether o
 I also don't know whether slopes are comparable across regions. And if we should be fixing the size-range parameters consistently across groups to allow cross comparison, or let them shift to better fit each seasonal subset. 
 Keeping with the original 1g minimum size parameterization. We see these distributions in the wigley species bodymass spectra:
  
+
 ```{r}
-#| label: comparison across regions
 
-
-wigley_bmspectra_model_df %>% 
+wigley_b_dist_plot <- wigley_bmspectra_model_df %>% 
   ggplot(aes(fct_rev(survey_area), b, color = season, fill = season)) +
   ggdist::stat_halfeye(
      alpha = 0.4,
@@ -1078,9 +1135,11 @@ wigley_bmspectra_model_df %>%
     x = "",
     title = "Individual Body Mass Distribution (1g - Max)")
 
-```
- 
 
+
+# Plot on its own
+wigley_b_dist_plot
+```
 
 
 ### Thoughts on Min/Max Parameters
