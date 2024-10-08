@@ -35,11 +35,13 @@ library(ggeffects)
 library(performance)
 library(gtsummary)
 library(gt)
+library(sizeSpectra)
 conflicted::conflict_prefer("select", "dplyr")
 conflicted::conflict_prefer("filter", "dplyr")
 conflicted::conflicts_prefer(lmerTest::lmer)
 
-
+# Processing functions
+source(here::here("Code/R/Processing_Functions.R"))
 
 # ggplot theme
 theme_set(
@@ -83,11 +85,50 @@ I am thinking this would be two panel plots (all-spp length, Wigley-spp biomass)
 ```{r}
 #| label: load input data usecd to estimate spectra
 
-
 # Data used for Wigley estimates
 wigley_in <- read_csv(here::here("Data/processed/wigley_species_trawl_data.csv"))
 finfish_in <- read_csv(here::here("Data/processed/finfish_trawl_data.csv"))
 ```
+
+#### Aside: Biomass in Each Community
+
+If we need to make a decision about which community we want to use, here is the different biomass totals for each:
+
+
+```{r}
+# glimpse(wigley_in)
+
+# Load raw
+# General tidying only, removal of strata outside our study area, Spring and Fall only
+# (removes inshore and rarely/inconsistently sampled strata etc.)
+# shrimps removed
+trawl_basic <- read_csv(here::here("Data/processed/trawl_clean_all_data.csv"))
+
+# Biomass totals
+raw_totals <- trawl_basic %>% 
+  distinct(est_towdate, cruise6, station, stratum, tow, comname,  biomass_kg) %>%   pull(biomass_kg) %>% 
+  sum()
+
+wig_biomass_total <- wigley_in %>% 
+  distinct(est_towdate, cruise6, station, stratum, tow, comname,  biomass_kg) %>%   pull(biomass_kg) %>% 
+  sum()
+
+ffish_biomass_total <- finfish_in %>% 
+  distinct(est_towdate, cruise6, station, stratum, tow, comname,  biomass_kg) %>%   pull(biomass_kg) %>% 
+  sum()
+
+
+tibble(
+  "Community" = c("All (including crustaceans)", "All finfish", "Wigley Species Subset"),
+  "Biomass Total" = c(raw_totals, ffish_biomass_total, wig_biomass_total)) %>% 
+  mutate(`% of Total` = (`Biomass Total` / raw_totals)*100) %>% 
+  gt()
+
+```
+
+
+
+
 
 
 ```{r}
@@ -507,7 +548,218 @@ wigley_bmspectra_model_df %>%
 
 
 ---
- 
+
+
+
+## Driver Model - Wigley Species Bodymass Distribution
+
+The following model has been used to determine the relationship between landings and seasonal bottom temperature on `b`.
+
+
+```
+lmer(
+  b ~ survey_area*season*scale(roll_temp) + survey_area * scale(log(total_weight_lb)) + (1|est_year), 
+  data = wtb_model_df)
+```
+
+
+```{r}
+
+#### Model 2: Temperature & Fishing ####
+
+
+# Drop NA's
+wtb_model_df <- drop_na(wigley_bmspectra_model_df, total_weight_lb, bot_temp, b) %>%
+  rename(area = survey_area) %>% 
+  left_join(area_df) %>% 
+  # Do rolling BT within a season * region
+  group_by(survey_area, season) %>%
+  mutate(
+    roll_temp = zoo::rollapply(bot_temp, 5, mean, na.rm = T, align = "right",  fill = NA)) %>% 
+  ungroup() %>% 
+  mutate(
+    yr_num = as.numeric(est_year),
+    yr_fac = factor(est_year),
+    survey_area = factor(survey_area, levels = area_levels),
+    season = factor(season, levels = c("Spring", "Fall")),
+    landings = total_weight_lb,
+    yr_seas = str_c(season, est_year))
+
+
+# Make the model
+mod2 <- lmer(
+  b ~ survey_area*season*scale(roll_temp) + survey_area*scale(log(total_weight_lb)) + (1|est_year), 
+  data = wtb_model_df)
+
+
+# summary(mod2)
+# check_model(mod2)
+
+
+
+```
+
+
+### Drive Model Sumamry
+
+```{r}
+mod2 %>% 
+  gtsummary::tbl_regression()   %>% 
+  add_global_p(keep = T) %>% 
+  bold_p(t = 0.05)  %>%
+  bold_labels() %>%
+  italicize_levels() %>% 
+  as_gt() %>% 
+  tab_header(title = "Wigley Community - Bodymass Distribution & Drivers")
+```
+
+
+
+
+
+### Temperature Relationship
+
+
+```{r}
+#| label: new bt plot
+
+
+# Clean up the plot:
+# Plot the predictions over data
+mod2_preds <- as.data.frame(
+  ggpredict(
+    mod2, 
+    terms = ~ roll_temp*survey_area*season))   %>% 
+  mutate(
+    survey_area = factor(group, levels = area_levels),
+    season = factor(facet, levels = c("Spring", "Fall")))
+
+
+
+#### Trend Posthoc  ####
+trend_df <- emtrends(
+  object = mod2,
+  ~survey_area * season,
+  var = "roll_temp")
+
+
+# Drop effect fits that are non-significant  ###
+mod2_emtrend <- emtrends(
+  object = mod2,
+  specs =  ~ survey_area*season,
+  var = "roll_temp") %>%
+  as_tibble() %>%
+  mutate(
+    zero = 0,
+    non_zero = if_else(between(zero, lower.CL, upper.CL), F, T))
+
+
+
+
+# Limit temperature plotting range
+actual_range <- wtb_model_df %>% 
+  group_by(season, survey_area) %>% 
+  summarise(min_temp = min(bot_temp)-2,
+            max_temp = max(bot_temp)+2,
+            .groups = "drop")
+
+
+
+# Plot over observed data
+mod2_preds %>% 
+  left_join(actual_range) %>% 
+  filter((x < min_temp) == F,
+         (x > max_temp) == F) %>% 
+  left_join(select(mod2_emtrend, survey_area, season, non_zero)) %>%
+  filter(non_zero) %>%
+  ggplot() +
+  geom_ribbon(aes(x, ymin = conf.low, ymax = conf.high, group = survey_area), alpha = 0.1) +
+  geom_line(
+    aes(x, predicted, color = season), 
+    linewidth = 1) +
+  geom_point(
+    data = wtb_model_df,
+    aes(roll_temp, b, color = season),
+    alpha = 0.4,
+    size = 1) +
+  facet_grid(survey_area~., scales = "free") +
+  scale_color_gmri() +
+  scale_x_continuous(labels = label_number(suffix = deg_c)) +
+  labs(y = "Exponent of ISD",
+       title = "Wigley Species, Body Mass Spectra",
+       x = "5-Year Rolling Average Bottom Temperature")
+
+```
+
+### Landings Relationship
+
+```{r}
+#| label: new landings
+
+# Clean up the plot:
+# Plot the predictions over data
+mod2_preds <- as.data.frame(
+  ggpredict(
+    mod2, 
+    terms = ~ total_weight_lb * survey_area * season))   %>% 
+  mutate(
+    survey_area = factor(group, levels = area_levels),
+    season = factor(facet, levels = c("Spring", "Fall")))
+
+
+
+#### Trend Posthoc  ####
+trend_df <- emtrends(
+  object = mod2,
+  ~survey_area * season,
+  var = "total_weight_lb")
+#summary(trend_df, infer= c(T,T))
+
+
+# Drop effect fits that are non-significant  ###
+mod2_emtrend <- emtrends(
+  object = mod2,
+  specs =  ~ survey_area*season,
+  var = "log(total_weight_lb)") %>%
+  as_tibble() %>%
+  mutate(
+    zero = 0,
+    non_zero = if_else(between(zero, lower.CL, upper.CL), F, T),
+    group = str_c(survey_area, "X", season))
+
+
+
+
+# Plot over observed data
+mod2_preds %>% 
+  left_join(select(mod2_emtrend, survey_area, season, non_zero)) %>%
+  filter(non_zero) %>%
+  ggplot() +
+  geom_ribbon(aes(x, ymin = conf.low, ymax = conf.high, group = season), alpha = 0.1) +
+  geom_line(
+    aes(x, predicted, color = season), 
+    linewidth = 1) +
+  geom_point(
+    data = wtb_model_df,
+    aes(total_weight_lb, b, color = season),
+    alpha = 0.4,
+    size = 1) +
+  facet_grid(survey_area~., scales = "free") +
+  scale_color_gmri() +
+  scale_x_continuous(transform = "log10", labels = label_log(base = 10)) +
+  labs(y = "Body Mass Spectra Slope (b)",
+       title = "Wigley Species, Body Mass Spectra",
+       x = "Total Landings (lb.)")
+
+
+```
+
+
+
+## Side Stories
+
+Everything below is digging into different nuances of the approach or the community composition. These things are of secondary importance and will be moved out.
+
 ### Spiny Dogfish Sensitivity
 
 Spiny dogfish constitute a large majority fraction of biomass in the MAB during the Spring survey. Their numbers have also been increasing over time. This acts to shallow the spectra as they are one of the larger species routinely sampled by the trawl survey.
@@ -786,13 +1038,11 @@ __________________
 
 # Methodology Hangups (New)
 
-I lack confidence that the values we have for slopes presently:
+I had for a while lacked confidence that the values we have for slopes because I was fixated on a perceived poor fit of actual data to the presumed distributions and the potential mis-application of an assumed pareto distribution.
 
- * Represent the actual distribution of the data (mis-application of an assumed pareto distribution)   
- * Are representative of some meaningful feature of the community (local changes in slope over some range of body-sizes has less meaning than what has been ascribed to it)    
+I have also struggled with what these "faceless" values represent, and whether or not they were some meaningful feature of the community. When feeling unconfident or cynical I worried that we were looking at local changes in slope over some finite range of body-sizes and that this had less meaning than what has been ascribed to it.
  
- I also don't know whether slopes are comparable across regions. This last point is more important salient when comparing absolute values shift when min/max parameters change (below).
- 
+I also don't know whether slopes are comparable across regions. And if we should be fixing the size-range parameters consistently across groups to allow cross comparison, or let them shift to better fit each seasonal subset. 
 Keeping with the original 1g minimum size parameterization. We see these distributions in the wigley species bodymass spectra:
  
 ```{r}
@@ -807,8 +1057,7 @@ wigley_bmspectra_model_df %>%
      width = .6, 
     .width = 0, 
     justification = -.2, 
-    point_colour = NA
-  ) + 
+    point_colour = NA) + 
   geom_boxplot(
     fill = "transparent",
     width = .15, 
@@ -825,9 +1074,9 @@ wigley_bmspectra_model_df %>%
   scale_fill_gmri() + 
   coord_flip() +
   labs(
-    y = "Exponent of Individual Body Mass Distribution", 
+    y = "ISD Exponent", 
     x = "",
-    title = "Exponent of Individual Mass Distribution (1g - Max)")
+    title = "Individual Body Mass Distribution (1g - Max)")
 
 ```
  
@@ -887,6 +1136,12 @@ lme_params %>% gt()
 ```
 
 
+
+
+::: panel-tabset
+
+
+#### Log2 Binned Bodymass Distribution
 
 The following plot shows what the distribution looks like for all data (years, seasons, areas) over the range of sizes we are allowing to contribute to the estimation of seasonal spectra. The data are binned into log2 increments. This isn't the same method we are using for slope estimates, but at an aggregate level like this it is an un-biased approximator of the individual size distribution.
 
@@ -1200,64 +1455,17 @@ ggplot(wigley_season_aggs, aes(2^left_lim, normalized_abund)) +
 ```
 
 
-I picked 16g here basically eyeballing things, but my point is mostly that I think there is a need and an advantage to shifting the minimum size. We could probably be more scientific and look at the mesh size used (codend liner 1 inch stretched diamond mesh), but I think precision there is less important that being closer than we are now.
+We could probably be more scientific than visually picking the inflection point and look at the mesh size used (codend liner 1 inch stretched diamond mesh), but I think precision there is less important that being closer than we are now. In all regions it seems like the typical linear slope begins at a larger size than 1g. 
 
 
-In all regions it seems like the typical linear slope begins at a larger size than 1g. If we take a year at random the distributions are even more patchy AND we may potentially introduce situations where the min-max size range is quite small (no large fishes sampled).
 
-```{r}
 
-# Aggregate on year, area, season
-wigley_season_aggs <- wigley_log2 %>% 
-  filter(est_year == 2000) %>% 
-  mutate(group_var = str_c(survey_area, "_", season)) %>% 
-  split(.$group_var) %>% 
-  map_dfr(
-    ~aggregate_log2_bins(
-      .x,
-      min_l10_bin = 0, 
-      max_l10_bin = 10, 
-      bin_increment = 1),
-    .id = "group_var") %>% 
-  separate(col = group_var, into = c("survey_area", "season")) %>% 
-  mutate(season = fct_rev(season))
-  
+#### Log2 Binned Length Distributions
 
-# Plot
-ggplot(wigley_season_aggs, aes(2^left_lim, normalized_abund)) +
-  geom_col(aes(fill = season),  position = "dodge", alpha  = 0.4) +
-  geom_vline(xintercept = 1, linetype = 2, color = "red", linewidth = 1) +
-  geom_label(
-      data = data.frame(val = 1, label = "1g"),
-      aes(x = val, y = I(0.5), label = label),
-      color = "red", label.size = 0.5, size = 2,
-      label.padding = unit(0.7, "lines"), label.r = unit(0.5, "lines")) +
-  geom_vline(xintercept = 2^4, linetype = 1, color = "royalblue", linewidth = 1) +
-  geom_label(
-      data = data.frame(val = 2^4, label = "16g"),
-      aes(x = val, y = I(0.5), label = label),
-      color = "royalblue", label.size = 0.5, size = 2,
-      label.padding = unit(0.7, "lines"), label.r = unit(0.5, "lines")) +
-  scale_fill_gmri() +
-  scale_x_continuous(labels = label_log(base = 2), transform = "log2", breaks = 2^c(0:12)) +
-  scale_y_continuous(labels = label_log(base = 2), transform = "log2") +
-  facet_wrap(~survey_area, ncol = 1, scales = "fixed") +
-  labs(
-    x = "Individual Body Weight (g)",
-    y = "Normalized Abundance\n(total abundance / bin width)",
-    color = "Season",
-    title = "2000, Seasonal size spectrum for Wigley Species Subset")
-
-```
-
+The length distributions look even more flat than the biomass distributions, basically ending at the 128-256cm bin. If we go with the Full finfish community we may want to look more closely at the max-size parameter.
 
 Here is what the length distirbution looks like for the broader finfish community:
 
-
-
-### Length Distributions
-
-The length distributions look even more flat than the biomass distributions, basically ending at the 128-256cm bin.
 
 ```{r}
 #| label: log length functions
@@ -1526,9 +1734,13 @@ ggplot(finfish_season_len_aggs, aes(2^left_lim, normalized_abund)) +
 ```
 
 
+:::
+
 
 ## Is it even Pareto?
 
+
+I still have some concerns about this, but I think I'm mostly over it and we don't have time or a plan to check and address them. 
 
 This section from Edwards 2007 alludes to the ongoing debate on appropriateness of applying size spectra methods to empirical data.
 
@@ -1539,10 +1751,9 @@ Other authors have raised this issue, but there is no clear advisement on how to
 
 # What if we shifted minimum size to 16g?
 
-I'm just going to go ahead and do it and see:
+I'm just going to go ahead and shift the minimum size cutoff to 16g and see what the consequences are:
 
-After doing some attempts to plot the impacts of moving it around, I am less convinced that its helping things and it may even be harming the situation as the range between min/max sizes can become quite small. 
-
+After doing some attempts to plot the impacts of moving it around, I am less convinced that its necessary, though it does result in steeper slopes over these sizes.
 
 
 ```{r}
@@ -1551,8 +1762,7 @@ After doing some attempts to plot the impacts of moving it around, I am less con
 
 # Load processing functions
 #remotes::install_github("andrew-edwards/sizeSpectra")
-library(sizeSpectra)
-source(here::here("Code/R/Processing_Functions.R"))
+
 
 
 # # Run the year, season, area fits for the filtered data
@@ -1584,11 +1794,66 @@ wigley_bmspectra_16 <- read_csv(
     size_range = xmax_actual - xmin_actual,
     area_titles = factor(area_titles, area_levels_long))
 
+
+
+
 ```
+
+
+
+
+```{r}
+#| eval: true
+#| label: refit spectra for 16g minimum 50kg maximum
+
+# Load processing functions
+#remotes::install_github("andrew-edwards/sizeSpectra")
+
+
+
+# # Run the year, season, area fits for the filtered data
+# wigley_bmspectra_16to50kg <- group_binspecies_spectra(
+#   ss_input = filter(
+#     wigley_in, 
+#     wmin_g >=16, 
+#     wmin_g <= 50000),
+#   grouping_vars = c("est_year", "season", "survey_area"),
+#   abundance_vals = "numlen_adj",
+#   length_vals = "length_cm",
+#   use_weight = TRUE,
+#   isd_xmin = 16,
+#   global_min = TRUE,
+#   isd_xmax = NULL,
+#   global_max = FALSE,
+#   bin_width = 1,
+#   vdiff = 2)
+# 
+# # Save those
+# write_csv(
+#   wigley_bmspectra_16to50kg,
+#   here::here("Data/processed/wigley_species_min16_max50kg_bodymass_spectra.csv"))
+
+
+# Read them in, do some plotting
+wigley_bmspectra_16to50kg <- read_csv(
+  here::here("Data/processed/wigley_species_min16_max50kg_bodymass_spectra.csv")) %>% 
+  left_join(area_df) %>% 
+  mutate(
+    survey_area = fct_relevel(survey_area, area_levels),
+    size_range = xmax_actual - xmin_actual,
+    area_titles = factor(area_titles, area_levels_long))
+
+
+
+
+```
+
+
+::: panel-tabset
 
 ### Trend Consequences
 
-With respect to trends, we lose the fall steepening ocurring in the Gulf of Maine, otherwise the direction of trends remain the same.
+With respect to trends, by shifting to 16g we lose the fall steepening ocurring in the Gulf of Maine, otherwise the direction of trends remain the same.
 
 
 ```{r}
@@ -1675,15 +1940,15 @@ wigley_trends_1g <- ggplot() +
 
 One of the original hypotheses was that under warming the size distribution in the Northern, colder regions would begin to resemble the size distributions of more southern, warmer regions.
 
+Whether or not we shift the size range, the distributions seem similarly distinct.
+
 To be directly comparable I had thought it might be important to restrict the range of sizes that we consider when estimating the exponent of the individual size distribution.
 
- 
-Before I plotted this I was concerned about the absolute values shifting in a meaningful way. I'm less concerned now.
+
 
 ```{r}
 
-
-
+# Plot what the 1g min size distributions look like
 dist_plot_1g <- wigley_bmspectra_model_df %>% 
   ggplot(aes(fct_rev(survey_area), b, color = season, fill = season)) +
   ggdist::stat_halfeye(
@@ -1710,13 +1975,14 @@ dist_plot_1g <- wigley_bmspectra_model_df %>%
   scale_fill_gmri() + 
   coord_flip() +
   labs(
-    y = "Exponent of Individual Body Mass Distribution", 
+    y = "ISD Exponent", 
     x = "",
-    title = "Exponent of Individual Mass Distribution (1g - Max)")
+    title = "1g - Max Weight")
 
 
-
+# Plot the 16g min size
 dist_plot_16g <- wigley_bmspectra_16 %>% 
+# dist_plot_16g <- wigley_bmspectra_16to50kg %>% 
   mutate(season = fct_rev(season)) %>% 
 ggplot(aes(fct_rev(area_titles), b, color = season, fill = season)) +
    ggdist::stat_halfeye(
@@ -1725,8 +1991,7 @@ ggplot(aes(fct_rev(area_titles), b, color = season, fill = season)) +
      width = .6, 
     .width = 0, 
     justification = -.2, 
-    point_colour = NA
-  ) + 
+    point_colour = NA) + 
   geom_boxplot(
     fill = "transparent",
     width = .15, 
@@ -1743,9 +2008,9 @@ ggplot(aes(fct_rev(area_titles), b, color = season, fill = season)) +
   scale_fill_gmri() + 
   coord_flip() +
   labs(
-    y = "Exponent of Individual Body Mass Distribution", 
+    y = "ISD Exponent", 
     x = "",
-    title = "Exponent of Individual Mass Distribution (16g - Max)")
+    title = "16g - Max Weight")
 
 
 
@@ -1756,19 +2021,24 @@ dist_plot_1g | dist_plot_16g
 
 ### Size Ranges Covered by ISD Fitting
 
+Before I plotted the distributions of exponent values before/after shifting minimum size, I was concerned about the absolute values shifting in a meaningful way. 
+
+I'm less concerned now, but the range of sizes spanneed in the MAB seem much larger than the other regions.
+
 The below plot shows the variance in min-max size ranges for the size distribution fits. There is a much larger range in the Mid-Atlantic. 
 
-We may want to drop some outliers there.
+We may want to drop some outliers there to be more consistent in the range of sizes we are comparing.
 
 
 
 ```{r}
 
-
-wigley_bmspectra_model_df %>% 
+# Size ranges as distribution
+p1 <- wigley_bmspectra_model_df %>% 
   left_join(area_df) %>% 
-  mutate(size_range = xmax_actual - xmin_actual) %>% 
-  ggplot(aes(fct_rev(area_titles), size_range,  color = season, fill = season)) +
+  mutate(size_range = xmax_actual - xmin_actual,
+         size_range_kg = size_range/1000) %>% 
+  ggplot(aes(fct_rev(area_titles), size_range_kg,  color = season, fill = season)) +
   ggdist::stat_halfeye(
      alpha = 0.4,
      adjust = .5, 
@@ -1787,24 +2057,48 @@ wigley_bmspectra_model_df %>%
     ## move geom to the left
     justification = 1.12, 
     ## adjust grouping (binning) of observations 
-    binwidth = 2500) + 
+    binwidth = 2.5) + 
   scale_color_gmri() + 
   scale_fill_gmri() + 
   coord_flip() +
-  scale_y_continuous(labels = label_number(suffix = "g")) +
+  scale_y_continuous(labels = label_number(suffix = "kg")) +
   labs(
-    title = "Variability in the Size Range for Spectra Estimate",
+    title = "Size Range for Spectra Estimate",
     x = "",
     y = "Size Range Used for Size Distribution Estimation")
 
+
+
+
+# Plot the ranges as bars
+p2 <- wigley_bmspectra_model_df %>% 
+  left_join(area_df) %>% 
+  mutate(est_year = if_else(season == "Spring", est_year-0.2, est_year+0.2)) %>% 
+  ggplot(aes(x = xmin_fit, xend = xmax_fit, y = est_year,  yend = est_year, color = season)) +
+  geom_segment() +
+  scale_color_gmri() + 
+  scale_fill_gmri() + 
+  facet_wrap(~area_titles, ncol = 2) +
+  scale_x_continuous(labels = label_number(suffix = "g")) +
+  labs(
+    title = "Min-Max Ranges",
+    x = "Size Ranges Spanned by Size Distribution",
+    y = "Year")
+
+p1 / p2
+
 ```
 
+:::
 
 
+---
 
 ### Visualizing Size Distribution "Fits"
 
-Everything below might have a bug so don't obsess over these fit plots for the time being.
+I found the bug that made the fits look strange, I was fitting length spectra and then plotting mass points.
+
+The following plots will go over the consequences of changing min/max limits when fitting the ISD for Mid-Atlantic Bight in Fall of 1976, a year with an exceptionally hefty individual that drags the size range to an extreme.
 
 
 ```{r}
@@ -1812,9 +2106,9 @@ Everything below might have a bug so don't obsess over these fit plots for the t
 
 
 # Prepare inputs directly:
-yr_op <- c(2000)
-reg   <- "GoM"
-seas  <- "Spring"
+yr_op <- c(1976)
+reg   <- "MAB"
+seas  <- "Fall"
 
 
 # Data for the spectra
@@ -1825,18 +2119,33 @@ actual_vals_1g <- wigley_in %>%
     season == seas,
     wmin_g >= 1)
 
+# Filtered to above 16g
 actual_vals_16g <- wigley_in %>%
   filter(
     est_year %in% yr_op,
     survey_area == reg,
     season == seas,
     wmin_g >= 16)
+
+# Filtered to above 16g, below 50kg
+actual_vals_16to50kg <- wigley_in %>%
+  filter(
+    est_year %in% yr_op,
+    survey_area == reg,
+    season == seas,
+    wmin_g >= 16, 
+    wmax_g <= 50000)
 ```
 
 
-### Sensitivity to minimum size
+## Sensitivity to minimum/maximum size
 
-Even when shifting the minimum size, its not clear that the size distribution now follows the pareto distribution more closely. Its easier to quickly look at the binned versions, but then we're hopping across methods again.
+Even when shifting the minimum size, its not clear that the size distribution now follows the pareto distribution more closely. 
+
+Its easier to quickly look at the binned versions, but then we're hopping across methods again.
+
+I tracked down the plotting bug, but its still likely not something we can allocate resources to worrying about.
+
 
 ```{r}
 # Load processing functions
@@ -1852,7 +2161,7 @@ mle_results_1g <- group_binspecies_spectra(
     grouping_vars = c("est_year", "season", "survey_area"),
     abundance_vals = "numlen_adj",
     length_vals = "length_cm",
-    use_weight = FALSE,
+    use_weight = TRUE,
     isd_xmin = 1,
     global_min = TRUE,
     isd_xmax = NULL,
@@ -1868,13 +2177,31 @@ mle_results_16g <- group_binspecies_spectra(
     grouping_vars = c("est_year", "season", "survey_area"),
     abundance_vals = "numlen_adj",
     length_vals = "length_cm",
-    use_weight = FALSE,
+    use_weight = TRUE,
     isd_xmin = 16,
     global_min = TRUE,
     isd_xmax = NULL,
     global_max = FALSE,
     bin_width = 1,
     vdiff = 2)
+
+
+
+# and again for 16g to 50kg
+mle_results_16to50kg <- group_binspecies_spectra(
+    ss_input = actual_vals_16to50kg,
+    grouping_vars = c("est_year", "season", "survey_area"),
+    abundance_vals = "numlen_adj",
+    length_vals = "length_cm",
+    use_weight = TRUE,
+    isd_xmin = 16,
+    global_min = TRUE,
+    isd_xmax = NULL,
+    global_max = FALSE,
+    bin_width = 1,
+    vdiff = 2)
+
+
 ```
 
 ```{r}
@@ -1960,7 +2287,7 @@ isd_plot_prep <- function(
 
 ::: panel-tabset
 
-#### 1g cutoff
+#### 1g Min Cutoff
 
 
 ```{r}
@@ -1968,8 +2295,8 @@ isd_plot_prep <- function(
 # Control options
 mle_results <- mle_results_1g
 actual_vals <- actual_vals_1g
-min_used <- 1
-
+min_used <- mle_results_1g$xmin_fit
+max_used <- mle_results_1g$xmax_fit
 
 
 
@@ -1985,7 +2312,7 @@ b.confMax       <- mle_results$confMax
 # Create range of x values from the group to get power law predictions
 # min and max weights for power law
 xmin  <- min_used
-xmax  <- max(actual_vals$wmin_g)
+xmax  <- max_used
 
 # Create x values (individual bodymass) to predict across
 # break up the Xlim into pieces between min and max
@@ -2046,10 +2373,6 @@ p_prepped <- actual_vals %>%
 
 # Messing with the plot axes
 fit_1g_gom_2000 <- ggplot() +
-  # geom_ribbon(
-  #   data = PLB_df, aes(x.PLB, ymin =confMin, ymax = confMax),
-  #   fill = gmri_cols("orange"), 
-  #   alpha = 0.4) +
   geom_line(
     data = PLB_df, aes(x.PLB, y.PLB),
     color = gmri_cols("orange"), 
@@ -2062,267 +2385,32 @@ fit_1g_gom_2000 <- ggplot() +
     alpha = 0.15,
     shape = 1) +
   scale_y_log10(
-    labels = trans_format("log10", math_format(10^.x)), 
-    limits = c(10^-1, 10^6)) +
+    labels = trans_format("log10", math_format(10^.x))#, 
+    #limits = c(10^-1, 10^6)
+    ) +
   scale_x_log10(
-    labels = trans_format("log10", math_format(10^.x)), 
-    limits = c(10^-1, 10^6)) +
+    labels = trans_format("log10", math_format(10^.x))#, 
+    #limits = c(10^-1, 10^6)
+    ) +
   labs(x = "Weight (g)", 
        y = "Abundance", 
-       title = "Wigley Species - GOM - Spring - 2000",
+       title = "Wigley Species - MAB - Fall - 1976",
        subtitle = "1g Minimum Size")
 
 fit_1g_gom_2000 
 ```
 
 
-#### 16g Cutoff
+#### 16g Min Cutoff
+
 
 ```{r}
 
 # Control options
 mle_results <- mle_results_16g
 actual_vals <- actual_vals_16g
-min_used <- 16
-
-
-
-
-#### -- Plpot setup below  ---
-
-# Power law parameters and summary details for the group of data:
-b.MLE           <- mle_results$b
-total_abundance <- mle_results$n
-b.confMin       <- mle_results$confMin
-b.confMax       <- mle_results$confMax
-
-
-
-# Create range of x values from the group to get power law predictions
-# min and max weights for power law
-xmin  <- min_used
-xmax  <- max(actual_vals$wmin_g)
-
-# Create x values (individual bodymass) to predict across
-# break up the Xlim into pieces between min and max
-x.PLB <- seq(
-  from = xmin,
-  to   = xmax,
-  by = 0.1) 
-
-# get the length of that vector
-x.PLB.length <- length(x.PLB) 
-
-# Y values for plot limits/bounds/predictions from bounded power law pdf
-y.PLB         <- (1 - sizeSpectra::pPLB(x = x.PLB, b = b.MLE, xmin = min(x.PLB), xmax = max(x.PLB))) * total_abundance
-y.PLB.confMin <- (1 - sizeSpectra::pPLB(x = x.PLB, b = b.confMin, xmin = min(x.PLB), xmax = max(x.PLB))) * total_abundance
-y.PLB.confMax <- (1 - sizeSpectra::pPLB(x = x.PLB, b = b.confMax, xmin = min(x.PLB), xmax = max(x.PLB))) * total_abundance
-
-# Put it in a df to make it easier
-PLB_df <- data.frame(
-  x.PLB   = x.PLB,
-  y.PLB   = y.PLB,
-  confMin = y.PLB.confMin,
-  confMax = y.PLB.confMax) %>%
-  mutate()
-
-
-# 2. solve the power law function again in mutate for residuals
-# need to do it twice for wmin_g and wmax_g
-# Aggregate across overlapping size ranges
-p_prepped <- actual_vals %>%
-  isd_plot_prep(min_weight_g = min_used) %>%
-  left_join(actual_vals) %>%
-  select(comname, wmin_g, wmax_g, lowCount, highCount, countGTEwmin) %>%
-  # Get the residuals
-  mutate(
-    # Estimated Abundance
-    wmin_estimate = (1 - sizeSpectra::pPLB(x = wmin_g, b = b.MLE, xmin = xmin, xmax = xmax)) * total_abundance,
-    wmax_estimate = (1 - sizeSpectra::pPLB(x = wmax_g, b = b.MLE, xmin = xmin, xmax = xmax)) * total_abundance,
-    # Residuals
-    b_resid = countGTEwmin - ((wmin_estimate + wmax_estimate)/2))
-
-
-
-#####  Plotting Raw  ####
-
-# Messing with the plot axes
-fit_16g_gom_2000 <- ggplot() +
-  geom_line(
-    data = PLB_df, aes(x.PLB, y.PLB),
-    color = gmri_cols("orange"), 
-    linewidth = 1) +
-    geom_point(
-      data = p_prepped %>% filter(lowCount >0),
-      aes(x = (wmin_g+wmax_g)/2,
-          y = countGTEwmin),
-    color = gmri_cols("gmri blue"),
-    alpha = 0.15,
-    shape = 1) +
-  scale_y_log10(
-    labels = trans_format("log10", math_format(10^.x)), 
-    limits = c(10^-1, 10^6)) +
-  scale_x_log10(
-    labels = trans_format("log10", math_format(10^.x)), 
-    limits = c(10^-1, 10^6)) +
-  labs(x = "Weight (g)", 
-       y = "Abundance", 
-       title = "Wigley Species - GOM - Spring - 2000",
-       subtitle = "16g Minimum Size")
-
-fit_16g_gom_2000 
-```
-
-:::
-
-
-### Sensitivity to max size
-
-
-
-```{r}
-
-# Get the slope over those years
-mle_results_1g <- group_binspecies_spectra(
-    ss_input = actual_vals_1g,
-    grouping_vars = c("est_year", "season", "survey_area"),
-    abundance_vals = "numlen_adj",
-    length_vals = "length_cm",
-    use_weight = FALSE,
-    isd_xmin = 1,
-    global_min = TRUE,
-    isd_xmax = 10^5,
-    global_max = TRUE,
-    bin_width = 1,
-    vdiff = 2)
-
-
-
-# and again for 16g
-mle_results_16g <- group_binspecies_spectra(
-    ss_input = actual_vals_16g,
-    grouping_vars = c("est_year", "season", "survey_area"),
-    abundance_vals = "numlen_adj",
-    length_vals = "length_cm",
-    use_weight = FALSE,
-    isd_xmin = 16,
-    global_min = TRUE,
-    isd_xmax = 10^5,
-    global_max = TRUE,
-    bin_width = 1,
-    vdiff = 2)
-```
-
-
-::: panel-tabset
-
-#### 1g Cutoff
-
-```{r}
-
-# Control options
-mle_results <- mle_results_1g
-actual_vals <- actual_vals_1g
-min_used <- 1
-max_used <- 10^5
-
-
-
-
-#### -- Plpot setup below  ---
-
-
-# Power law parameters and summary details for the group of data:
-b.MLE           <- mle_results$b
-total_abundance <- mle_results$n
-b.confMin       <- mle_results$confMin
-b.confMax       <- mle_results$confMax
-
-# Create range of x values from the group to get power law predictions
-# min and max weights for power law
-xmin  <- min_used
-xmax  <- max(actual_vals$wmin_g)
-
-# Create x values (individual bodymass) to predict across
-# break up the Xlim into pieces between min and max
-x.PLB <- seq(
-  from = xmin,
-  to   = xmax,
-  by = 0.1) 
-
-# get the length of that vector
-x.PLB.length <- length(x.PLB) 
-
-# Y values for plot limits/bounds/predictions from bounded power law pdf
-y.PLB         <- (1 - sizeSpectra::pPLB(x = x.PLB, b = b.MLE, xmin = min(x.PLB), xmax = max(x.PLB))) * total_abundance
-y.PLB.confMin <- (1 - sizeSpectra::pPLB(x = x.PLB, b = b.confMin, xmin = min(x.PLB), xmax = max(x.PLB))) * total_abundance
-y.PLB.confMax <- (1 - sizeSpectra::pPLB(x = x.PLB, b = b.confMax, xmin = min(x.PLB), xmax = max(x.PLB))) * total_abundance
-
-# Put it in a df to make it easier
-PLB_df <- data.frame(
-  x.PLB   = x.PLB,
-  y.PLB   = y.PLB,
-  confMin = y.PLB.confMin,
-  confMax = y.PLB.confMax) %>%
-  mutate()
-
-
-# 2. solve the power law function again in mutate for residuals
-# need to do it twice for wmin_g and wmax_g
-# Aggregate across overlapping size ranges
-p_prepped <- actual_vals %>%
-  isd_plot_prep(min_weight_g = min_used) %>%
-  left_join(actual_vals) %>%
-  select(comname, wmin_g, wmax_g, lowCount, highCount, countGTEwmin) %>%
-  # Get the residuals
-  mutate(
-    # Estimated Abundance
-    wmin_estimate = (1 - sizeSpectra::pPLB(x = wmin_g, b = b.MLE, xmin = xmin, xmax = xmax)) * total_abundance,
-    wmax_estimate = (1 - sizeSpectra::pPLB(x = wmax_g, b = b.MLE, xmin = xmin, xmax = xmax)) * total_abundance,
-    # Residuals
-    b_resid = countGTEwmin - ((wmin_estimate + wmax_estimate)/2))
-
-
-
-#####  Plotting Raw  ####
-
-# Messing with the plot axes
-fit_1g_gom_2000 <- ggplot() +
-  geom_line(
-    data = PLB_df, aes(x.PLB, y.PLB),
-    color = gmri_cols("orange"), 
-    linewidth = 1) +
-    geom_point(
-      data = p_prepped %>% filter(lowCount >0),
-      aes(x = (wmin_g+wmax_g)/2,
-          y = countGTEwmin),
-    color = gmri_cols("gmri blue"),
-    alpha = 0.15,
-    shape = 1) +
-  scale_y_log10(
-    labels = trans_format("log10", math_format(10^.x)), 
-    limits = c(10^-1, 10^6)) +
-  scale_x_log10(
-    labels = trans_format("log10", math_format(10^.x)), 
-    limits = c(10^-1, 10^6)) +
-  labs(x = "Weight (g)", 
-       y = "Abundance", 
-       title = "Wigley Species - GOM - Spring - 2000",
-       subtitle = "1g Minimum Size, 10^5 max size limit")
-
-fit_1g_gom_2000
-```
-
-#### 16g Cutoff
-
-```{r}
-
-# Control options
-mle_results <- mle_results_16g
-actual_vals <- actual_vals_16g
-min_used <- 16
-max_used <- 10^5
-
+min_used <- mle_results_16g$xmin_fit
+max_used <- mle_results_16g$xmax_fit
 
 
 
@@ -2398,18 +2486,132 @@ fit_16g_gom_2000 <- ggplot() +
     alpha = 0.15,
     shape = 1) +
   scale_y_log10(
-    labels = trans_format("log10", math_format(10^.x)), 
-    limits = c(10^-1, 10^6)) +
+    labels = trans_format("log10", math_format(10^.x))#, 
+    #limits = c(10^-1, 10^6)
+    ) +
   scale_x_log10(
-    labels = trans_format("log10", math_format(10^.x)), 
-    limits = c(10^-1, 10^6)) +
+    labels = trans_format("log10", math_format(10^.x))#, 
+    #limits = c(10^-1, 10^6)
+    ) +
   labs(x = "Weight (g)", 
        y = "Abundance", 
-       title = "Wigley Species - GOM - Spring - 2000",
-       subtitle = "16g Minimum Size, 10^5 max size limit")
-fit_16g_gom_2000
+       title = "Wigley Species - MAB - Fall - 1976",
+       subtitle = "16g Minimum Size")
+
+fit_16g_gom_2000 
 ```
 
+
+
+#### 16g up-to 50kg
+
+
+There are a couple different implementations of how to enforce a max size. One is to pre-filter the data, and allow the parameter to be the largest size still. Another would be to filter the data AND set the max-size parameter for the ISD estimation. The latter would lock in the same parameter value for all fits, the former would.
+
+For the following plot I've filtered the input data to below 50kg, and then allowed the largest size present set the parameter `xmax`.
+
+
+```{r}
+
+# Control options
+mle_results <- mle_results_16to50kg
+actual_vals <- actual_vals_16to50kg
+min_used <- mle_results_16to50kg$xmin_fit
+max_used <- mle_results_16to50kg$xmax_fit
+
+
+#### -- Plpot setup below  ---
+
+# Power law parameters and summary details for the group of data:
+b.MLE           <- mle_results$b
+total_abundance <- mle_results$n
+b.confMin       <- mle_results$confMin
+b.confMax       <- mle_results$confMax
+
+
+# Create range of x values from the group to get power law predictions
+# min and max weights for power law
+xmin  <- min_used
+xmax  <- max_used
+
+# Create x values (individual bodymass) to predict across
+# break up the Xlim into pieces between min and max
+x.PLB <- seq(
+  from = xmin,
+  to   = xmax,
+  by = 0.1) 
+
+# get the length of that vector
+x.PLB.length <- length(x.PLB) 
+
+# Y values for plot limits/bounds/predictions from bounded power law pdf
+y.PLB         <- (1 - sizeSpectra::pPLB(x = x.PLB, b = b.MLE, xmin = min(x.PLB), xmax = max(x.PLB))) * total_abundance
+y.PLB.confMin <- (1 - sizeSpectra::pPLB(x = x.PLB, b = b.confMin, xmin = min(x.PLB), xmax = max(x.PLB))) * total_abundance
+y.PLB.confMax <- (1 - sizeSpectra::pPLB(x = x.PLB, b = b.confMax, xmin = min(x.PLB), xmax = max(x.PLB))) * total_abundance
+
+# Put it in a df to make it easier
+PLB_df <- data.frame(
+  x.PLB   = x.PLB,
+  y.PLB   = y.PLB,
+  confMin = y.PLB.confMin,
+  confMax = y.PLB.confMax) %>%
+  mutate()
+
+
+# 2. solve the power law function again in mutate for residuals
+# need to do it twice for wmin_g and wmax_g
+# Aggregate across overlapping size ranges
+p_prepped <- actual_vals %>%
+  isd_plot_prep(min_weight_g = min_used) %>%
+  left_join(actual_vals) %>%
+  select(comname, wmin_g, wmax_g, lowCount, highCount, countGTEwmin) %>%
+  # Get the residuals
+  mutate(
+    # Estimated Abundance
+    wmin_estimate = (1 - sizeSpectra::pPLB(x = wmin_g, b = b.MLE, xmin = xmin, xmax = xmax)) * total_abundance,
+    wmax_estimate = (1 - sizeSpectra::pPLB(x = wmax_g, b = b.MLE, xmin = xmin, xmax = xmax)) * total_abundance,
+    # Residuals
+    b_resid = countGTEwmin - ((wmin_estimate + wmax_estimate)/2))
+
+
+
+#####  Plotting Raw  ####
+
+# Messing with the plot axes
+fit_16to50kg_gom_2000 <- ggplot() +
+  geom_line(
+    data = PLB_df, aes(x.PLB, y.PLB),
+    color = gmri_cols("orange"), 
+    linewidth = 1) +
+    geom_point(
+      data = p_prepped %>% filter(lowCount >0),
+      aes(x = (wmin_g+wmax_g)/2,
+          y = countGTEwmin),
+    color = gmri_cols("gmri blue"),
+    alpha = 0.15,
+    shape = 1) +
+  scale_y_log10(
+    labels = trans_format("log10", math_format(10^.x))#, 
+    #limits = c(10^-1, 10^6)
+    ) +
+  scale_x_log10(
+    labels = trans_format("log10", math_format(10^.x))#, 
+    #limits = c(10^-1, 10^6)
+    ) +
+  labs(x = "Weight (g)", 
+       y = "Abundance", 
+       title = "Wigley Species - MAB - Fall - 1976",
+       subtitle = "16g Min-Size, 50kg Max-size")
+
+
+
+fit_16to50kg_gom_2000 
+```
+
+
+
 :::
+
+
 
 

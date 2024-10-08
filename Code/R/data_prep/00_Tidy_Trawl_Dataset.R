@@ -35,6 +35,8 @@ trawl_basic <- trawl_basic %>%
   distinct(id, comname, catchsex, length_cm, .keep_all = T) 
 
 
+
+
 # So if the species is a decapod or shellfish then they estimate length to the nearest mm. 
 # Otherwise length is to the nearest cm. So this is important to distinguish for lobster vs. finfish predators.
 crusts <- trawl_basic %>%
@@ -72,6 +74,7 @@ trawl_wigley <- trawl_wigley %>%
 
 
 ####  Save Tidy Trawl Datasets  ####
+write_csv(trawl_basic, here::here("Data/processed/trawl_clean_all_data.csv"))
 write_csv(finfish_trawl, here::here("Data/processed/finfish_trawl_data.csv"))
 write_csv(trawl_wigley, here::here("Data/processed/wigley_species_trawl_data.csv"))
 
