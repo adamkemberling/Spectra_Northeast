@@ -7,6 +7,7 @@ library(gmRi)
 library(sizeSpectra)
 library(tidyquant)
 library(conflicted)
+library(patchwork)
 conflicts_prefer(dplyr::filter)
 conflicts_prefer(dplyr::select)
 
@@ -138,11 +139,10 @@ length_binspectra_wigley %>%
 
 
 ####  Biomass Spectra for Wigley Species  ####
-# Not functional here 5/23/2024
+
 
 # For the Wigley species we can estimate individual weight from length
 # then estimate size spectra using individual weights
-
 bodymass_binspectra_wigley <- group_binspecies_spectra(
   ss_input = trawl_wigley,
   grouping_vars = c("est_year", "season", "survey_area"),
@@ -175,7 +175,7 @@ bodymass_binspectra_wigley %>%
        color = "Season")
 
 
-# Why are there so many -1's? - that's an issue, vecdiff?
+# Why are there so many precise -1's? - that's an issue, vecdiff?
 weird_fits <- bodymass_binspectra_wigley %>% 
   filter(between(b, -1.005, -0.9995)) %>% 
   distinct(est_year, survey_area, season) %>% 
@@ -195,14 +195,14 @@ weird_params <- weird_inputs %>%
     data.frame(
       min_weight = min(x$wmin_g),
       max_weight = max(x$wmin_g),
-      n = sum(x$numlen_adj)
-    )
-  }, .id = "group_var") %>% 
+      n = sum(x$numlen_adj))
+    }, .id = "group_var") %>% 
   separate(
     col = "group_var", 
     into = c("est_year", "survey_area", "season"), sep = "-") %>% 
   mutate(est_year = as.numeric(est_year)) %>% 
   pivot_longer(cols = c(min_weight, max_weight, n), names_to = "var", values_to = "val")
+
 
 fine_params <- fine_inputs %>% 
   unite("group_var", est_year, survey_area, season, sep = "-") %>% 
@@ -211,8 +211,7 @@ fine_params <- fine_inputs %>%
     data.frame(
       min_weight = min(x$wmin_g),
       max_weight = max(x$wmin_g),
-      n = sum(x$numlen_adj)
-    )
+      n = sum(x$numlen_adj))
   }, .id = "group_var") %>% 
   separate(col = "group_var", into = c("est_year", "survey_area", "season"), sep = "-") %>% 
   mutate(est_year = as.numeric(est_year)) %>% 
@@ -222,7 +221,7 @@ fine_params <- fine_inputs %>%
 
 
 # Plot comparison
-library(patchwork)
+
 bind_rows(
   mutate(fine_params, flag = "Okay"),
   mutate(weird_params, flag = "Off")) %>% 
