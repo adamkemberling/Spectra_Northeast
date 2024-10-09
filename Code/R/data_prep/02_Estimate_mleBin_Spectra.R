@@ -23,7 +23,7 @@ trawl_wigley <- read_csv(here::here("Data/processed/wigley_species_trawl_data.cs
 
 
 
-#### Length Spectra All Species  ####
+#### Length Spectra All Species - By Region  ####
 
 
 # Test 1 subgroup
@@ -82,10 +82,45 @@ length_binspectra %>%
 
 
 
+#### Full Shelf ####
+
+# All finfish length_spectra
+length_binspectra_shelf <- group_binspecies_spectra(
+  ss_input = mutate(finfish_trawl, survey_area = "Northeast Shelf"),
+  grouping_vars = c("est_year", "season", "survey_area"),
+  abundance_vals = "numlen_adj",
+  length_vals = "length_cm",
+  use_weight = FALSE,
+  isd_xmin = 1,
+  global_min = TRUE,
+  isd_xmax = NULL,
+  global_max = FALSE,
+  bin_width = 1, 
+  vdiff = 4)
 
 
 
-####  Length Spectra for Wigley Species  ####
+# Plot it
+length_binspectra_shelf %>% 
+  mutate(yr_num = as.numeric(as.character(est_year))) %>% 
+  ggplot(aes(yr_num, b, color = season)) +
+  geom_point(size = 1, alpha = 0.6) +
+  geom_ma(aes(linetype = "5-Year Moving Average"),n = 5, ma_fun = SMA) +
+  geom_smooth(method = "lm", linewidth = 1, se = F, 
+              aes(linetype = "Regression Fit")) +
+  facet_wrap(~survey_area) +
+  scale_color_gmri() +
+  labs(title = "Length Spectra Slope - MLE Bins Method",
+       subtitle = "Enforced xmin = 1, xmax = max(length_cm + 1)",
+       y = "b",
+       x = "Year",
+       color = "Season")
+
+
+
+
+
+####  Length Spectra for Wigley Species - By Region  ####
 
 # Wigley species length spectra
 length_binspectra_wigley <- group_binspecies_spectra(
@@ -138,7 +173,7 @@ length_binspectra_wigley %>%
 
 
 
-####  Biomass Spectra for Wigley Species  ####
+####  Biomass Spectra for Wigley Species - By Region  ####
 
 
 # For the Wigley species we can estimate individual weight from length
@@ -173,6 +208,48 @@ bodymass_binspectra_wigley %>%
        y = "b",
        x = "Year",
        color = "Season")
+
+
+####  Full Shelf  ####
+
+# For the Wigley species we can estimate individual weight from length
+# then estimate size spectra using individual weights
+bodymass_binspectra_wigley_shelf <- group_binspecies_spectra(
+  ss_input = mutate(trawl_wigley, survey_area = "Northeast Shelf"),
+  grouping_vars = c("est_year", "season", "survey_area"),
+  abundance_vals = "numlen_adj",
+  length_vals = "length_cm",
+  use_weight = TRUE,
+  isd_xmin = 1,
+  global_min = TRUE,
+  isd_xmax = NULL,
+  global_max = FALSE,
+  bin_width = 1,
+  vdiff = 2)
+
+
+
+# And do a plot check
+bodymass_binspectra_wigley_shelf %>% 
+  filter(season %in% c("Spring", "Fall")) %>% 
+  mutate(yr_num = as.numeric(as.character(est_year))) %>% 
+  ggplot(aes(yr_num, b, color = season)) +
+  geom_point(size = 1, alpha = 0.6) +
+  geom_ma(aes(linetype = "5-Year Moving Average"),n = 5, ma_fun = SMA) +
+  geom_smooth(method = "lm", linewidth = 1, se = F, 
+              aes(linetype = "Regression Fit")) +
+  facet_wrap(~survey_area) +
+  scale_color_gmri() +
+  labs(title = "Bodymass Spectra - MLE Bins Method Wigley",
+       subtitle = "Enforced xmin = 1g, xmax = max(ind_weight_g)",
+       y = "b",
+       x = "Year",
+       color = "Season")
+
+
+
+
+#### Debugs  ####
 
 
 # Why are there so many precise -1's? - that's an issue, vecdiff?
@@ -238,12 +315,15 @@ ggplot(aes(est_year, val, color = flag)) +
 
 
 ####  Save Length/Mass Spectra  ####
+
+# Save regional
 write_csv(length_binspectra, here::here("Data/processed/finfish_length_spectra.csv"))
 write_csv(length_binspectra_wigley, here::here("Data/processed/wigley_species_length_spectra.csv"))
 write_csv(bodymass_binspectra_wigley, here::here("Data/processed/wigley_species_bodymass_spectra.csv"))
 
-
-
+# Save Shelf
+write_csv(length_binspectra_shelf, here::here("Data/processed/shelfwide_finfish_length_spectra.csv"))
+write_csv(bodymass_binspectra_wigley_shelf, here::here("Data/processed/shelfwide_wigley_species_bodymass_spectra.csv"))
 
 #####  New Cutoff 10g?  ####
 
