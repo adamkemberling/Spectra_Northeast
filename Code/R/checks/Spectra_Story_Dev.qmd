@@ -404,6 +404,8 @@ lenspectra_trend_p
 >I also think it would be valuable to build out the story of size change further, so am thinking that plots like those of average (or median) length (all species) and weight (wigley species) for NES and the sub-regions, like those on p. 12 of the attached file above (the very first draft from late 2022) would be useful.  - KMills  
 
 
+
+
 ```{r}
 #| label: length changes
 
@@ -553,6 +555,8 @@ We also don't see a shelf-wide decline in size so I might need to check what Fri
 
 
 ## C. Small/Large Fish Trends
+
+Data for part C. comes from the Wigly species subset to set percentiles based on individual bodymass.
 
 The following figures frame "large fish" as individuals with bodymass greater than the 90th percentile for all years within that region. "Small fish" are considered smaller than the 10th percentile of the mass distribution.
 
