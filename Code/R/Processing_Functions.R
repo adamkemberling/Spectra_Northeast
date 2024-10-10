@@ -686,6 +686,8 @@ group_binspecies_spectra <-  function(
 # Get weighted mean lengths and weights using 
 # tow-level and total stratified abundances
 # Note: uses numlen because individuals were ID'd and measured
+
+
 group_size_metrics <- function(
     size_data, 
     .group_cols = "Year", 
@@ -713,15 +715,15 @@ group_size_metrics <- function(
       
       # Length (measured for all)
       mean_len    <- weighted.mean(
-        group_data[, .length_col], 
-        group_data[, .abund_col], 
+        group_data[[.length_col]], 
+        group_data[[.abund_col]], 
         na.rm = T)
-      med_len     <- matrixStats::weightedMedian(
-        group_data[, .length_col], 
-        group_data[, .abund_col], 
+      med_len   <- matrixStats::weightedMedian(
+        group_data[[.length_col]], 
+        group_data[[.abund_col]], 
         na.rm = T)
-      min_len     <- min(group_data[, .length_col], na.rm = T)
-      max_len     <- max(group_data[, .length_col], na.rm = T)
+      min_len     <- min(group_data[[.length_col]], na.rm = T)
+      max_len     <- max(group_data[[.length_col]], na.rm = T)
       
       
       
@@ -730,19 +732,19 @@ group_size_metrics <- function(
         group_data <- drop_na(group_data, {{.weight_col}})
         
         mean_weight <- weighted.mean(
-          group_data[,.weight_col], 
-          group_data[, .abund_col], 
+          group_data[[.weight_col]], 
+          group_data[[.abund_col]], 
           na.rm = T)
         med_weight  <- matrixStats::weightedMedian(
-          group_data[, .weight_col], 
-          group_data[, .abund_col], 
+          group_data[[.weight_col]], 
+          group_data[[.abund_col]], 
           na.rm = T)
-        min_weight  <- min(group_data[, .weight_col], na.rm = T)
-        max_weight  <- max(group_data[, .weight_col], na.rm = T)
+        min_weight  <- min(group_data[[.weight_col]], na.rm = T)
+        max_weight  <- max(group_data[[.weight_col]], na.rm = T)
       }
       
       # Abundance totals
-      total_abund <- sum(group_data[, .abund_col], na.rm = T)
+      total_abund <- sum(group_data[[.abund_col]], na.rm = T)
       
       # Total number of species
       num_species <- group_data %>% 
@@ -776,9 +778,9 @@ group_size_metrics <- function(
             .fns = ~ifelse(is.infinite(abs(.x)), NA, .x)))
         
       }
-        
-        
-        
+      
+      
+      
       
       # return the table
       return(table_out)
@@ -797,6 +799,121 @@ group_size_metrics <- function(
   
   
 }
+
+
+# # Below would work for dataframes but fail for tibbles, needed to change to `[[`
+
+# group_size_metrics <- function(
+#     size_data, 
+#     .group_cols = "Year", 
+#     .abund_col = "numlen_adj",
+#     .length_col = "length_cm",
+#     has_weights = FALSE,
+#     .weight_col = "ind_weight_kg"){
+#   
+#   
+#   # 1. Build group_level from desired group columns
+#   group_size_data <- size_data %>% 
+#     drop_na({{.abund_col}}, {{.length_col}}) %>% 
+#     unite(
+#       col = "group_var", 
+#       {{.group_cols}}, 
+#       sep = "-", 
+#       remove = TRUE, 
+#       na.rm = TRUE)
+#   
+#   
+#   # Run Min/Max/Avg. Size for the group
+#   group_results <- group_size_data %>% 
+#     split(.$group_var) %>% 
+#     imap_dfr(function(group_data, group_name){
+#       
+#       # Length (measured for all)
+#       mean_len    <- weighted.mean(
+#         group_data[, .length_col], 
+#         group_data[, .abund_col], 
+#         na.rm = T)
+#       med_len   <- matrixStats::weightedMedian(
+#         group_data[, .length_col], 
+#         group_data[, .abund_col], 
+#         na.rm = T)
+#       min_len     <- min(group_data[, .length_col], na.rm = T)
+#       max_len     <- max(group_data[, .length_col], na.rm = T)
+#       
+#       
+#       
+#       # Weights (estimated from length w/ wigley data)
+#       if(has_weights == TRUE){
+#         group_data <- drop_na(group_data, {{.weight_col}})
+#         
+#         mean_weight <- weighted.mean(
+#           group_data[,.weight_col], 
+#           group_data[, .abund_col], 
+#           na.rm = T)
+#         med_weight  <- matrixStats::weightedMedian(
+#           group_data[, .weight_col], 
+#           group_data[, .abund_col], 
+#           na.rm = T)
+#         min_weight  <- min(group_data[, .weight_col], na.rm = T)
+#         max_weight  <- max(group_data[, .weight_col], na.rm = T)
+#       }
+#       
+#       # Abundance totals
+#       total_abund <- sum(group_data[, .abund_col], na.rm = T)
+#       
+#       # Total number of species
+#       num_species <- group_data %>% 
+#         filter(is.na(comname) == FALSE) %>% 
+#         distinct(comname) %>% 
+#         nrow()
+#       
+#       # Put in table
+#       table_out <- data.frame(
+#         "group_var"        = group_name,
+#         "n_species"        = num_species,  
+#         "numlen_adj_total" = total_abund,
+#         "mean_len_cm"      = mean_len,
+#         "med_len_cm"       = med_len,
+#         "min_len_cm"       = min_len,
+#         "max_len_cm"       = max_len)
+#       
+#       # Add weight information
+#       if(has_weights == TRUE){
+#         table_out <- bind_cols(
+#           table_out,
+#           data.frame(
+#             "mean_wt_kg"       = mean_weight,
+#             "med_wt_kg"        = med_weight,
+#             "min_wt_kg"        = min_weight,
+#             "max_wt_kg"        = max_weight)) %>% 
+#           
+#           # Replace Inf with NA
+#           mutate(across(
+#             .cols = numlen_adj_total:max_wt_kg, 
+#             .fns = ~ifelse(is.infinite(abs(.x)), NA, .x)))
+#         
+#       }
+#         
+#         
+#         
+#       
+#       # return the table
+#       return(table_out)
+#     }) %>% 
+#     # Decompose the group ID back into original columns
+#     separate(
+#       group_var, 
+#       sep = "-", 
+#       into = .group_cols, 
+#       remove = T)
+#   
+#   
+#   
+#   # Return the results
+#   return(group_results)
+#   
+#   
+# }
 
 
 
