@@ -108,6 +108,16 @@ get_preds_and_trendsignif <- function(mod_x){
 The [Aug draft you developed](https://docs.google.com/document/d/1bOIdQgFZbUavtBXPf570ATz9VjpjVX9Ki5hOqVw71CI/edit) really focused on [comparing regression models to consider drivers based on the fish community size spectrum](https://adamkemberling.github.io/Spectra_Northeast/Code/R/modeling/lm_models/lm_summary_materials.html) as viewed from the perspective of the Wigley species set vs. the full species set.  
 However, I didn't see figures of those spectra in that draft (maybe there are somewhere else and I've lost track).  The recent slide deck really focuses on seasonal differences in the size spectra and influence of temperature.  - KMills
 
+This document will be split into two sections (the second potentially moving to its own doc). 
+
+
+# Part 1: Summary of Trends
+
+For the first section the focus is on understanding changes in the size structure. This will be done using length and bodymass spectra, large and small fish indices, and looking at how body mass size quantiles have moved over time.
+
+This section should address: Has the size distribution changed over time, where has it changed, and some nuance around what aspects about the distribution have shifted.
+
+
 ## Starting from Square Uno
 
 > I'd like for us to start by rebuilding the story of how the size structure has changed over time and regional differences.  
@@ -162,7 +172,9 @@ tibble(
 
 
 
-## Size Spectra Trends
+## A. Size Spectra Trends
+
+For the figures in part 1: non-zero trends over time have been highlighted in the appropriate plot panels with linear trends overlaid.
 
 
 
@@ -269,15 +281,15 @@ bmspectra_trend_p <- ggplot() +
 bmspectra_trend_p
 
 
-# Summary tables
-bmspectra_mod_wig_all %>% 
-  gtsummary::tbl_regression()   %>% 
-  add_global_p(keep = T) %>% 
-  bold_p(t = 0.05)  %>%
-  bold_labels() %>%
-  italicize_levels() %>% 
-  as_gt() %>% 
-  tab_header(title = "Wigley Community - Mass Spectra Trends")
+# # Summary tables
+# bmspectra_mod_wig_all %>% 
+#   gtsummary::tbl_regression()   %>% 
+#   add_global_p(keep = T) %>% 
+#   bold_p(t = 0.05)  %>%
+#   bold_labels() %>%
+#   italicize_levels() %>% 
+#   as_gt() %>% 
+#   tab_header(title = "Wigley Community - Mass Spectra Trends")
 
 ```
 
@@ -343,15 +355,15 @@ lenspectra_trend_p
 
 
 
-# Summary tables
-lenspectra_mod_all  %>% 
-  gtsummary::tbl_regression()   %>% 
-  add_global_p(keep = T) %>% 
-  bold_p(t = 0.05)  %>%
-  bold_labels() %>%
-  italicize_levels() %>% 
-  as_gt() %>% 
-  tab_header(title = "Full Finfish Community - Length Spectra Trends")
+# # Summary tables
+# lenspectra_mod_all  %>% 
+#   gtsummary::tbl_regression()   %>% 
+#   add_global_p(keep = T) %>% 
+#   bold_p(t = 0.05)  %>%
+#   bold_labels() %>%
+#   italicize_levels() %>% 
+#   as_gt() %>% 
+#   tab_header(title = "Full Finfish Community - Length Spectra Trends")
 ```
 
 ### Both Community Size Spectra
@@ -374,7 +386,10 @@ lenspectra_mod_all  %>%
 
 # Plot over observed data
 # Contrast seasonal differences
-(lenspectra_trend_p | bmspectra_trend_p) + plot_layout(guides = "collect")
+(
+  (lenspectra_trend_p + theme(strip.text.y = element_blank()) | 
+  bmspectra_trend_p)
+  ) + plot_layout(guides = "collect")
 ```
 
 
@@ -383,7 +398,7 @@ lenspectra_mod_all  %>%
 
 
 
-## Median Length & Weight Trends
+## B. Median Length & Weight Trends
 
 
 >I also think it would be valuable to build out the story of size change further, so am thinking that plots like those of average (or median) length (all species) and weight (wigley species) for NES and the sub-regions, like those on p. 12 of the attached file above (the very first draft from late 2022) would be useful.  - KMills  
@@ -537,7 +552,7 @@ There are a number of years when median weight surges in MAB. For these situatio
 We also don't see a shelf-wide decline in size so I might need to check what Friedland did or prepare for a confrontation.
 
 
-### Small/Large Fish Index
+## C. Small/Large Fish Trends
 
 The following figures frame "large fish" as individuals with bodymass greater than the 90th percentile for all years within that region. "Small fish" are considered smaller than the 10th percentile of the mass distribution.
 
@@ -545,6 +560,7 @@ The following table shows what those percentiles are for each region.
 
 **NOTE:**
 Percentiles are determined using `DescTools::Quantile()` which uses `numlen_adj` to weight everything by abundance.
+
 
 ```{r}
 #| label: weighted percentiles
@@ -653,11 +669,15 @@ pander(big_fishes$`Common Name:`)
 
 You might think: "Why is a 1kg acadian redfish a "large fish"?", and thats a consequence of abundance declining with size pretty dramatically.
 
+What we may want to do is look at the distribution of all sizes, and not their frequency of occurence when setting percentiles.
+
 ::: panel-tabset
 
 ### Shifting 10th & 90th Percentiles
 
-A 90th percentile fish is smaller than I feel it has been in the past, so I wanted to plot those quantiles over time:
+A 90th percentile fish is smaller than I feel it has been in the past, so I wanted to plot those quantiles over time. Indeed, GOM 90th percentile was nearly 2x what it is today.
+
+
 
 ```{r}
 # Do them separately
@@ -715,10 +735,14 @@ q90_p <- quants_long %>%
 
 ```
 
+10th percentile weights seem stable. 90th percentile body-weights have fluctuated over time.
 
 
 ### LFI & SMI
 
+The axes on these are: $$\frac{\sum{individuals_{ijs}
+> mass~threshold}}
+{\sum{individuals_{ijs}}} * 100$$ for each: $year_i$, $region_j$, $season_s$.
 
 ```{r}
 #| label: plot lfi as percent
@@ -776,6 +800,8 @@ lfi_p <- ggplot(lfi) +
 ```
 
 ### Large and Small Fish Abundance
+
+This plots the abundance of individuals above/below the size thresholds as abundance.
 
 ```{r}
 #| label: plot lfi in abundance
@@ -849,7 +875,8 @@ lfi_p <- ggplot(lfi) +
 
 # Part 2: Relationships to External Factors
 
-The following plots and summaries will relate the Wigley species spectra to Temperature and Live Landings
+The aim of this section is to provide context and potentially attribution/correlations that may help explain trends/changes observed in the above section.
+
 
 ```{r}
 
@@ -871,7 +898,8 @@ wigley_bmspectra_model_df <- wigley_bmspectra_model_df %>%
 
 ###  Bottom Temperature Changes
 
-Bottom temperatures have increased in all four regions. The distribution of seasonal bottom temperatures are such that Gulf of Maine experiences a much smaller difference in seasonal temperature swings than the other regions.
+Bottom temperatures are from the DuPontavice and Saba combined bottom temperature product. This data product has been clipped to the study areas and seasonally averaged to match the survey sampling seasons.
+
 
 ```{r}
 temp1 <- wigley_bmspectra_model_df %>% 
@@ -879,13 +907,26 @@ temp1 <- wigley_bmspectra_model_df %>%
   geom_point(size = 0.8, alpha = 0.5) +
   geom_ma(size = 1, n = 5, ma_fun = SMA, linetype = 1) +
   scale_color_gmri() + 
-  facet_wrap(~survey_area, ncol = 1) +
+  facet_grid(survey_area~.) +
   scale_y_continuous(labels = label_number(suffix = "\u00b0C")) +
   labs(y = "Bottom Temperature", x = "Year", color = "5-Year Smooth")
 
 
+
+temp1 
+```
+
+Bottom temperatures have increased in all four regions. The distribution of seasonal bottom temperatures are such that Gulf of Maine experiences a much smaller difference in seasonal temperature swings than the other regions.
+
+### Bottom Temperature Distributions
+
+Bottom temperatures are more seasonal in GB, SNE, and MAB. In the Gulf of Maine the difference in bottom temperatures
+
+
+```{r}
+
 # Plot the distribution as a raincloud plot
-temp2 <- wigley_bmspectra_model_df %>% 
+wigley_bmspectra_model_df %>% 
   ggplot(aes(fct_rev(survey_area), bot_temp, color = season, fill = season)) +
    ggdist::stat_halfeye(
      alpha = 0.4,
@@ -914,13 +955,9 @@ temp2 <- wigley_bmspectra_model_df %>%
   coord_flip() +
   theme(legend.position = "none") +
   labs(y = "Bottom Temperature", x = "", color = "Season")
-
-temp1 | temp2
 ```
 
-
-The overlap in bottom temperature distributions is very similar to the overlap in mass spectra exponents.
-
+The overlap in bottom temperature distributions is very similar to the overlap in mass spectra exponents. Gulf of Maine spectra and bottom temperatures share a good region of overlap, and the regions that experience larger seasonal fluctuations in BT see larger seasonal fluctuations in their size distributions.
 
 ```{r}
 #| label: comparison across regions
@@ -958,10 +995,12 @@ wigley_b_dist_plot <- wigley_bmspectra_model_df %>%
 
 
 # Plot next to bottom temperatures
-wigley_b_dist_plot | temp2
+wigley_b_dist_plot
 ```
 
-Which makes me lean towards thinking that the size distribution is responsive to the ambient water temperatures, and perhaps less stationary and responsive to long-term trends in some area.
+This makes me lean towards belief that the size distribution is more responsive on shorter time scales to the ambient water temperatures. 
+
+This to me also suggests that as a whole the community is less stationary and better able to respond to slower long-term trends in any individual region.
 
 
 ```{r}
@@ -977,6 +1016,9 @@ wigley_bmspectra_model_df %>%
 
 ### Total Landings
 
+The landings information is the newer GARFO data obtained from Andy Beet. It was delivered as containing only finfish, I have removed freshwater species and blue crabs. It should largely reflect marine finfish species at this point.
+
+
 ```{r}
 wigley_bmspectra_model_df %>% 
   distinct(est_year, survey_area, total_weight_lb) %>% 
@@ -989,13 +1031,20 @@ wigley_bmspectra_model_df %>%
   labs(y = "Total Landings (live lb.)", x = "Year", color = "Moving Average")
 ```
 
+### Zooplankton Community Indices
+
 
 
 ---
 
 
+### Driver Correlations
 
-### Driver Model
+
+
+### Driver Modeling
+
+This section is likely to change
 
 The following model has been used to determine the relationship between landings and seasonal bottom temperature on `b`.
 
@@ -1042,22 +1091,6 @@ mod2 <- lmer(
 
 
 ```
-
-
-### Drive Model Sumamry
-
-```{r}
-mod2 %>% 
-  gtsummary::tbl_regression()   %>% 
-  add_global_p(keep = T) %>% 
-  bold_p(t = 0.05)  %>%
-  bold_labels() %>%
-  italicize_levels() %>% 
-  as_gt() %>% 
-  tab_header(title = "Wigley Community - Bodymass Distribution & Drivers")
-```
-
-
 
 
 
@@ -1200,6 +1233,26 @@ mod2_preds %>%
 
 
 
+
+### Driver Model Summary
+
+
+
+```{r}
+# mod2 %>% 
+#   gtsummary::tbl_regression()   %>% 
+#   add_global_p(keep = T) %>% 
+#   bold_p(t = 0.05)  %>%
+#   bold_labels() %>%
+#   italicize_levels() %>% 
+#   as_gt() %>% 
+#   tab_header(title = "Wigley Community - Bodymass Distribution & Drivers")
+```
+
+
+
+
+
 ## Side Stories
 
 Everything below is digging into different nuances of the approach or the community composition. These things are of secondary importance and will be moved out.
@@ -1213,7 +1266,7 @@ If we remove them from the estimation and re-run the slopes this is what changes
 How much can one species shift the spectra, and is this a definitive/conclusive proof that its the dogfish shallowing the slope in MAB?
 
 ```{r}
-#| eval: false
+#| eval: true
 #| label: spiny dogfish spectra
 
 
