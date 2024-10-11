@@ -34,6 +34,11 @@ area_df <- data.frame(
   area_titles = c("Scotian Shelf", "Gulf of Maine", "Georges Bank", "Southern New England", "Mid-Atlantic Bight", "Northeast Shelf"))
 
 
+
+
+####  1. GARFO Landings  ####
+
+
 # Read in GARFO Landings, averaged over ~survey_areas
 
 # # From 2022 GMRI inventory
@@ -49,6 +54,8 @@ landings_annual <- read_csv(here::here("Data/processed/BEET_GARFO_regional_finfi
 
 
 
+
+####  2. Seasonal Bottom Temperatures  ####
 
 # Read in du pontavice bottom temperatures, 
 # these are averaged within survey_areas in Code/py/Annual_BT_Processing.ipynb
@@ -66,6 +73,13 @@ bot_temps <- read_csv(here::here("Data/processed", "trawl_region_seasonal_bottom
          est_year = year) %>% 
   left_join(area_df) %>% 
   select(survey_area, area_titles, est_year, season, bot_temp)
+
+
+
+
+####  3. Zooplankton Community Indices  ####
+
+# Load zooplankton community size indices from {ecodata}
 
 
 

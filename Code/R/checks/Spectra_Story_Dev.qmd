@@ -600,7 +600,8 @@ area_size_quants <- bind_rows(
 area_size_quants %>% 
   mutate_if(is.numeric, round, 2) %>% 
   gt() %>% 
-  tab_header(title = "Wigley Species - Body Mass Quantiles (kg)")
+  tab_header(title = "Wigley Species - Body Mass Quantiles (kg)") %>% tab_spanner(label = "Percentile", columns = -survey_area) %>% 
+  cols_label("survey_area" = "")
 
 ```
 
@@ -679,8 +680,9 @@ What we may want to do is look at the distribution of all sizes, and not their f
 
 ### Shifting 10th & 90th Percentiles
 
-A 90th percentile fish is smaller than I feel it has been in the past, so I wanted to plot those quantiles over time. Indeed, GOM 90th percentile was nearly 2x what it is today.
+A 90th percentile fish is smaller than I feel it has been in the past, so I wanted to plot those quantiles over time. 
 
+Indeed, the 90th & 95th percentile size for fishes in the GOM was nearly 2x what it is today.
 
 
 ```{r}
@@ -696,7 +698,7 @@ yearly_size_quants <- bind_rows(
       # x$length_cm, 
       x$ind_weight_kg,
       weights = x$numlen_adj, 
-      probs = c(0.05, 0.1, 0.5, 0.90, .95)) %>% 
+      probs = c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.90, .95)) %>% 
       t() %>% 
       as_tibble() 
   }, .id = "group_var") %>% 
@@ -707,8 +709,9 @@ yearly_size_quants <- bind_rows(
   arrange(survey_area)
 
 
+# Reshape to make filtering easier
 quants_long <- yearly_size_quants %>% 
-  select(-c(`5%`,`50%`, `95%`)) %>% 
+  #select(-c(`5%`,`50%`, `95%`)) %>% 
   pivot_longer(cols = -c(survey_area, est_year), names_to = "Percentile", values_to = "biomass_kg") 
 
 
@@ -719,10 +722,11 @@ q10_p <- quants_long %>%
   geom_point(size = 0.8, alpha = 0.5) +
   geom_ma(n = 5, ma_fun = SMA, aes(linetype = "5-Year Moving Average"), color = "black") +
   scale_color_gmri() +
-  theme(strip.text.y = element_blank()) +
+  theme(
+    strip.text.y = element_blank(),
+    plot.margin = margin(0,0,0,0)) +
   facet_grid(survey_area~Percentile) +
   labs(y = "Bodymass (kg)", x = "Year", linetype = "")
-
 
 # Separate axes
 q90_p <- quants_long %>%
@@ -731,15 +735,105 @@ q90_p <- quants_long %>%
   geom_point(size = 0.8, alpha = 0.5) +
   geom_ma(n = 5, ma_fun = SMA, aes(linetype = "5-Year Moving Average"), color = "black") +
   scale_color_gmri(reverse = T) +
+  theme(
+    strip.text.y = element_blank(),
+    plot.margin = margin(0,0,0,0)) +
   facet_grid(survey_area~Percentile) +
   labs(y = "", x = "Year", linetype = "")
 
-(q10_p | q90_p) + plot_layout(guides = "collect")
+
+# Separate axes
+q95_p <- quants_long %>%
+  filter(Percentile == "95%") %>% 
+  ggplot(aes(est_year, biomass_kg)) +
+  geom_point(size = 0.8, alpha = 0.5) +
+  geom_ma(n = 5, ma_fun = SMA, aes(linetype = "5-Year Moving Average"), color = "black") +
+  scale_color_gmri(reverse = T) +
+  theme(plot.margin = margin(0,0,0,0)) +
+  facet_grid(survey_area~Percentile) +
+  labs(y = "", x = "Year", linetype = "")
+
+(q10_p | q90_p | q95_p) + plot_layout(guides = "collect", axes = "collect_x") +
+  plot_annotation(title = "Regional Size Percentile Changes")
 
 
 ```
 
 10th percentile weights seem stable. 90th percentile body-weights have fluctuated over time.
+
+
+```{r}
+#| label : percentiles as filled contours
+
+
+
+# Map over years and areas?
+quant_fillers <- yearly_size_quants %>% 
+  unite(col = "year_area", sep = "X", est_year, survey_area, remove = F) %>% 
+  split(.$year_area) %>% 
+  map_dfr(function(x){
+    tribble(
+      ~"quant_range",   ~"x",            ~"y",       ~"xend",         ~"yend",
+       "0-10%",   x[["est_year"]], 0,          x[["est_year"]], x[["10%"]],
+       "10-20%",   x[["est_year"]], x[["10%"]], x[["est_year"]], x[["20%"]],
+      #"0-20%",   x[["est_year"]], 0, x[["est_year"]], x[["20%"]],
+      # Normal below
+      "20-30%",   x[["est_year"]], x[["20%"]], x[["est_year"]], x[["30%"]],
+      "30-40%",   x[["est_year"]], x[["30%"]], x[["est_year"]], x[["40%"]],
+      "40-50%",   x[["est_year"]], x[["40%"]], x[["est_year"]], x[["50%"]],
+      "50-60%",   x[["est_year"]], x[["50%"]], x[["est_year"]], x[["60%"]],
+      "60-70%",   x[["est_year"]], x[["60%"]], x[["est_year"]], x[["70%"]],
+      "70-80%",   x[["est_year"]], x[["70%"]], x[["est_year"]], x[["80%"]],
+      "80-90%",   x[["est_year"]], x[["80%"]], x[["est_year"]], x[["90%"]]#,
+      # Don't go to 100
+      #"90-95%",  x[["est_year"]], x[["90%"]], x[["est_year"]], x[["95%"]]
+      )
+
+  }, .id = "year_area") %>% 
+  separate(year_area, into = c("est_year", "survey_area"), sep = "X") %>% 
+  mutate(
+    quant_range = factor(quant_range, levels = c(
+     "0-10%", "10-20%", 
+     #"0-20%", 
+     "20-30%", "30-40%", "40-50%", 
+     "50-60%", "60-70%", "70-80%", "80-90%", "90-95%")),
+    survey_area = factor(survey_area, levels = area_levels_all))
+  
+
+
+# Try that funky guy
+ggplot(quants_long) +
+  geom_ribbon(
+    data = quant_fillers,
+    aes(x = x, ymin = y*1000, ymax = yend*1000, fill = quant_range), 
+    alpha = 1, color = "transparent", linewidth = 0.1) +
+  geom_line(
+    aes(est_year, biomass_kg*1000, group = Percentile), 
+    linewidth = 0.2, alpha = 0.35, color = "white") +
+  
+  facet_grid(survey_area~., scales = "free") +
+  guides(fill = guide_legend(nrow = 2, title.position = "top", title.hjust = 0.5)) +
+  # This one looks good on true y values
+  scale_fill_brewer(direction = 1) +
+  #scale_y_continuous(labels = label_number(big.mark = ",")) +
+  # # This one looks good on log10 y values
+  # rcartocolor::scale_fill_carto_d(palette = "BluYl",direction = -1) +
+  scale_x_continuous(expand = expansion(add = c(0,0))) +
+  # theme_bw() + theme(
+  #   legend.position = "bottom", 
+  #   strip.background = element_rect(fill = "#00736D"), 
+  #   strip.text = element_text(face = "bold", color = "white"),
+  #   strip.text.y = element_text(angle = 0),
+  #   plot.title = element_text(face = "bold")) +
+  scale_y_log10() +
+  labs(
+    y = "Individual Bodymass (g)", 
+    x = "Year", 
+    fill = "Body Size Quantile Range",
+    title = "Looks like an ice shelf")
+
+```
+
 
 
 ### LFI & SMI
@@ -906,6 +1000,10 @@ Bottom temperatures are from the DuPontavice and Saba combined bottom temperatur
 
 
 ```{r}
+
+
+
+# Plot temperatures
 temp1 <- wigley_bmspectra_model_df %>% 
   ggplot(aes(est_year, bot_temp, color = season)) +
   geom_point(size = 0.8, alpha = 0.5) +
@@ -1042,11 +1140,11 @@ wigley_bmspectra_model_df %>%
 ---
 
 
-### Driver Correlations
+## Driver Correlations
 
 
 
-### Driver Modeling
+## Driver Modeling
 
 This section is likely to change
 

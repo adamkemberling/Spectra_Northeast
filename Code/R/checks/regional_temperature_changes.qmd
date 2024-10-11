@@ -6,6 +6,13 @@ format:
   html:
     toc: true
     self-contained: true
+    code-fold: true
+execute:
+  echo: true
+  fig-width: 6
+  fig-height: 6
+  message: false
+  warning: false
 ---
 
 # Regional Surface and Bottom Temperature Trends of Northeast US
@@ -202,7 +209,7 @@ ggplot(regional_clim) +
 
 Both surface and bottom span this 30-year period so we can view them as anomalies based on the same reference period.
 
-.{panel-tabset}
+::: panel-tabset
 
 #### Annual
 
