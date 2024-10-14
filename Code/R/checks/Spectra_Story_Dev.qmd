@@ -1050,7 +1050,7 @@ wigley_bmspectra_model_df %>%
     ## move geom to the left
     justification = 1.12, 
     ## adjust grouping (binning) of observations 
-    binwidth = .25) + 
+    binwidth = .1) + 
   scale_color_gmri() + 
   scale_fill_gmri() + 
   scale_y_continuous(labels = label_number(suffix = "\u00b0C")) +
