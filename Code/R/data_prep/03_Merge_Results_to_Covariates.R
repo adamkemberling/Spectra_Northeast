@@ -81,6 +81,15 @@ bot_temps <- read_csv(here::here("Data/processed", "trawl_region_seasonal_bottom
 
 # Load zooplankton community size indices from {ecodata}
 
+# Small large index not present anymore, has "regimes"
+zoo_regimes <- ecodata::zoo_regime
+forage_index <- ecodata::forage_index
+plot_forage_anomaly(report = "NewEngland")
+
+
+
+
+
 
 
 

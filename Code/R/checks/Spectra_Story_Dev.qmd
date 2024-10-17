@@ -554,7 +554,7 @@ There are a number of years when median weight surges in MAB. For these situatio
 We also don't see a shelf-wide decline in size so I might need to check what Friedland did or prepare for a confrontation.
 
 
-## C. Small/Large Fish Trends
+## C. Small/Large Fish Trends (True Percentiles)
 
 Data for part C. comes from the Wigly species subset to set percentiles based on individual bodymass.
 
@@ -813,24 +813,14 @@ ggplot(quants_long) +
   
   facet_grid(survey_area~., scales = "free") +
   guides(fill = guide_legend(nrow = 2, title.position = "top", title.hjust = 0.5)) +
-  # This one looks good on true y values
   scale_fill_brewer(direction = 1) +
-  #scale_y_continuous(labels = label_number(big.mark = ",")) +
-  # # This one looks good on log10 y values
-  # rcartocolor::scale_fill_carto_d(palette = "BluYl",direction = -1) +
   scale_x_continuous(expand = expansion(add = c(0,0))) +
-  # theme_bw() + theme(
-  #   legend.position = "bottom", 
-  #   strip.background = element_rect(fill = "#00736D"), 
-  #   strip.text = element_text(face = "bold", color = "white"),
-  #   strip.text.y = element_text(angle = 0),
-  #   plot.title = element_text(face = "bold")) +
   scale_y_log10() +
   labs(
     y = "Individual Bodymass (g)", 
     x = "Year", 
     fill = "Body Size Quantile Range",
-    title = "Looks like an ice shelf")
+    title = "Changes in Body Size Quantiles")
 
 ```
 
@@ -959,7 +949,152 @@ lfi_p <- ggplot(lfi) +
 :::
 
 
+## D. 1kg Discrete Size Breaks
 
+Due to the skewed distribution in abundance with increasing size, using percentile cutoffs leads to a situation where "large" individuals are in practice quite small.
+
+For the plots below I took the the 1-5kg range in body weights and broke that range into five equally spaced body size ranges.
+
+```{r}
+# What percent is 5kg and smaller?
+wigley_smol <- filter(wigley_in, ind_weight_kg <= 5)
+smol_frac <- signif((sum(wigley_smol$numlen_adj, na.rm = T) / sum(wigley_in$numlen_adj, na.rm = T)), 3) *100
+```
+
+
+This still includes `smol_frac`% of the abundance for wigley species.
+
+
+```{r}
+#| fig-height: 3
+
+# Do everything together
+
+overall_weight_ranges <- seq(
+      floor(min(wigley_smol$ind_weight_kg, na.rm = T)),
+      ceiling(max(wigley_smol$ind_weight_kg, na.rm = T)),
+      length.out = 6)
+overall_range_tbl <-tibble(
+      "size_group" = c("S", "S-M", "M", "M-L", "L"),
+      "min" = overall_weight_ranges[1:5],
+      "max" = overall_weight_ranges[2:6]
+    ) %>% 
+  mutate(size_range = str_c(min, "-",max, "kg"))
+
+# Plot the breaks
+overall_range_tbl  %>% 
+  mutate(
+    size_group = factor(size_group, levels = c("S", "S-M", "M", "M-L", "L"))) %>% 
+  ggplot() +
+  geom_segment(aes(x = min, xend = max, y = 0, yend = 0, color = size_group), linewidth = 14) +
+  geom_point(aes(x = min, y = 0), shape = "|", size = 5) +
+  geom_point(aes(x = max, y = 0), shape = "|", size = 5) +
+  scale_y_continuous(expand = expansion(add = c(0.001, 0.001)), labels = NULL, breaks = NULL) +
+  rcartocolor::scale_color_carto_d(palette = "OrYel") +
+  labs(x = "Individual Body Mass (kg)", y = "", color = "Size Range", title = "Even Breaks in Body Mass",
+       subtitle = ">5kg Individuals Removed")
+
+
+  
+```
+
+
+
+```{r}
+# Apply new breaks and get trends
+wigley_labelled <- wigley_in %>% 
+  mutate(
+    size_group = case_when(
+      ind_weight_kg < 1 ~ "S",
+      ind_weight_kg < 2 ~ "S-M",
+      ind_weight_kg < 3 ~ "M",
+      ind_weight_kg < 4 ~ "M-L",
+      ind_weight_kg <= 5 ~ "L",
+      ind_weight_kg > 5 ~ NA_character_)) %>% 
+  drop_na(size_group) %>% 
+  mutate(size_group = factor(size_group, levels = c("S", "S-M", "M", "M-L", "L"))) %>% 
+  left_join(overall_range_tbl)
+
+
+# Get totals:
+even_breaks_summary <- bind_rows(
+    mutate(wigley_labelled, survey_area = "Northeast Shelf"),
+    wigley_labelled) %>% 
+  group_by(survey_area, est_year, season, size_group, size_range) %>% 
+  summarise(
+    total_size_abund = sum(numlen_adj, na.rm = T),
+    total_size_bio = sum(ind_weight_kg),
+    .groups = "drop") %>% 
+  mutate(
+    est_year = as.numeric(est_year),
+    survey_area = factor(survey_area, levels = area_levels_all)) %>% 
+  arrange(survey_area) %>% 
+  left_join(total_abundbio) %>% 
+  mutate(
+    percent_abund = total_size_abund / total_abund,
+    percent_bio = total_size_bio / total_bio,
+    survey_area = factor(survey_area, levels = area_levels_all),
+    season = factor(season, levels = c("Spring", "Fall")))
+```
+
+::: panel-tabset
+
+### 1kg Bin Changes
+
+```{r}
+ggplot(even_breaks_summary, aes(est_year, percent_abund, color = season)) +
+  #geom_line() +
+  geom_point(size = 0.8, alpha = 0.5) +
+  geom_ma(size = 1, n = 5, ma_fun = SMA, linetype = 1) +
+  scale_color_gmri() +
+  scale_y_continuous(labels = label_percent()) +
+  facet_grid(size_range*size_group~survey_area, scales = "free") +
+  labs(y = "% / Seasonal Abundance", x = "Year")
+
+
+
+```
+
+### How is Abundance Distributed?
+
+These figures really should be standardized into some sort of CPUE to account for differences in effort and area.
+
+```{r}
+# Plot the Northeast Shelf changes
+even_breaks_summary %>% 
+  mutate(size_range = fct_rev(size_range)) %>% 
+  filter(survey_area != "Northeast Shelf") %>% 
+  mutate(area_title = "Northeast Shelf") %>% 
+  ggplot(aes(est_year, total_size_abund, fill = survey_area)) +
+  geom_col(position = "stack") +
+  scale_fill_gmri() +
+  scale_y_continuous(breaks = scales::breaks_pretty(), labels = label_number(big.mark = ",") ) +
+  facet_grid(size_range*size_group~area_title*season, scales = "free") +
+  labs(y = "Abundance", x = "Year", fill = "Region")
+```
+
+
+### How is Biomass Distributed?
+
+You can really see the jump at 2008 in these figures if you look at Spring, and at the smaller bins for Fall.
+
+Biomass totals below are from biomass-at-length estimates*
+
+```{r}
+# Plot the Northeast Shelf changes
+even_breaks_summary %>% 
+  mutate(size_range = fct_rev(size_range)) %>% 
+  filter(survey_area != "Northeast Shelf") %>% 
+  mutate(area_title = "Northeast Shelf") %>% 
+  ggplot(aes(est_year, total_size_bio, fill = survey_area)) +
+  geom_col(position = "stack") +
+  scale_fill_gmri() +
+  scale_y_continuous(breaks = scales::breaks_pretty(), labels = label_number(big.mark = ",") ) +
+  facet_grid(size_range*size_group~area_title*season, scales = "free") +
+  labs(y = "Biomass (kg)", x = "Year", fill = "Region")
+```
+
+:::
 
 # Summary of Trends
 
