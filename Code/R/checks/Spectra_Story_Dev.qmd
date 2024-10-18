@@ -451,7 +451,6 @@ wt_mod_wig <- lmer(
 # Get the predictions and flag whether they are significant
 size_trend_predictions <- bind_rows(list(
   "med_len_cm-Finfish Community" = get_preds_and_trendsignif(len_mod_ffish),
-  #"med_len_cm-Wigley Subset"     = get_preds_and_trendsignif(len_mod_wig),
   "med_wt_kg-Wigley Subset"   = get_preds_and_trendsignif(wt_mod_wig)
   ), .id = "model_id") %>% 
   separate(model_id, into = c("metric", "community"), sep = "-") %>% 
@@ -529,7 +528,7 @@ wt_plot <- size_long %>%
     n = 5, ma_fun = SMA) +
   geom_line(
     data = filter(size_trend_predictions, metric == "med_wt_kg", non_zero == TRUE),
-    aes(x, predicted, color = season),
+    aes(x, predicted, color = season, linetype = "Significant Trend"),
     linewidth = 1, alpha = 1) +
   scale_fill_gmri() +
   scale_color_gmri() +
@@ -658,10 +657,11 @@ lfi <- left_join(total_abundbio, lf_abundbio) %>%
 
 The following species are those which has representation in the large fish index:
 
+You might think: "Why is a 1kg acadian redfish a "large fish"?". That's a consequence of abundance declining with size pretty dramatically.
+
 ```{r}
 big_fishes <- wigley_in %>% 
   filter(large) %>% 
-  # filter(comname == "acadian redfish") %>% glimpse()
   distinct(comname) %>% 
   arrange(comname) %>% 
   rename(`Common Name:` = comname) 
@@ -672,9 +672,22 @@ pander(big_fishes$`Common Name:`)
 
 ```
 
-You might think: "Why is a 1kg acadian redfish a "large fish"?", and thats a consequence of abundance declining with size pretty dramatically.
+There's really just so few "large" individuals that the percentiles sit quite small.
 
-What we may want to do is look at the distribution of all sizes, and not their frequency of occurence when setting percentiles.
+```{r}
+#| fig-height: 4
+
+
+wigley_in %>% 
+  filter(ind_weight_kg <= 5) %>% 
+  ggplot(aes(x = ind_weight_g, y = ..density.., weight = numlen_adj)) + 
+  geom_histogram(fill = "#535353", binwidth = 50 ) +
+  #geom_density(color = "#EA4F12", linewidth = 1) +
+  labs(title = "Overall Bodymass Distribution for Wigley Species",
+       subtitle = "Weights over 5kg removed",
+       x = "Mass (g)")
+```
+
 
 ::: panel-tabset
 
@@ -686,6 +699,7 @@ Indeed, the 90th & 95th percentile size for fishes in the GOM was nearly 2x what
 
 
 ```{r}
+
 # Do them separately
 yearly_size_quants <- bind_rows(
     mutate(wigley_in, survey_area = "Northeast Shelf"),
@@ -959,6 +973,8 @@ For the plots below I took the the 1-5kg range in body weights and broke that ra
 # What percent is 5kg and smaller?
 wigley_smol <- filter(wigley_in, ind_weight_kg <= 5)
 smol_frac <- signif((sum(wigley_smol$numlen_adj, na.rm = T) / sum(wigley_in$numlen_adj, na.rm = T)), 3) *100
+
+
 ```
 
 
@@ -969,17 +985,19 @@ This still includes `smol_frac`% of the abundance for wigley species.
 #| fig-height: 3
 
 # Do everything together
-
+# Make evenly spaced bins
 overall_weight_ranges <- seq(
       floor(min(wigley_smol$ind_weight_kg, na.rm = T)),
       ceiling(max(wigley_smol$ind_weight_kg, na.rm = T)),
       length.out = 6)
+# Make that a table for plotting
 overall_range_tbl <-tibble(
       "size_group" = c("S", "S-M", "M", "M-L", "L"),
       "min" = overall_weight_ranges[1:5],
       "max" = overall_weight_ranges[2:6]
     ) %>% 
   mutate(size_range = str_c(min, "-",max, "kg"))
+
 
 # Plot the breaks
 overall_range_tbl  %>% 
@@ -999,6 +1017,7 @@ overall_range_tbl  %>%
 ```
 
 
+If we plot these 1kg bins we can see that 0-1kg individuals dominate the region.
 
 ```{r}
 # Apply new breaks and get trends
@@ -1014,6 +1033,8 @@ wigley_labelled <- wigley_in %>%
   drop_na(size_group) %>% 
   mutate(size_group = factor(size_group, levels = c("S", "S-M", "M", "M-L", "L"))) %>% 
   left_join(overall_range_tbl)
+
+#wigley_labelled %>% filter(size_group == "S") %>% glimpse()
 
 
 # Get totals:
@@ -1031,15 +1052,80 @@ even_breaks_summary <- bind_rows(
   arrange(survey_area) %>% 
   left_join(total_abundbio) %>% 
   mutate(
+    size_group = factor(size_group, levels = c("S", "S-M", "M", "M-L", "L")),
     percent_abund = total_size_abund / total_abund,
     percent_bio = total_size_bio / total_bio,
     survey_area = factor(survey_area, levels = area_levels_all),
     season = factor(season, levels = c("Spring", "Fall")))
+
+
+
+# Bar Chart
+ggplot(even_breaks_summary, aes(est_year, percent_abund, fill = size_group)) +
+  geom_col(position = "stack", color = "black", linewidth = 0.1) +
+  rcartocolor::scale_fill_carto_d(palette = "OrYel") +
+  scale_y_continuous(labels = label_percent(), limits = c(0,1), expand = expansion(add = c(0,0))) +
+  facet_grid(survey_area ~ season, scales = "free") +
+  labs(y = "% / Seasonal Abundance", x = "Year", fill = "Size Class")
 ```
+
+
 
 ::: panel-tabset
 
+
+### Most Abundant Species
+
+```{r}
+# What are the most abundant species in each group
+top_species <- wigley_labelled %>% 
+  group_by(survey_area, size_group, comname) %>% 
+  summarise(total_abund = sum(numlen_adj, na.rm = T),
+            total_bio  = sum(ind_weight_kg, na.rm = T)) 
+# Most abundant
+abund_table <- top_species %>% 
+  arrange(desc(total_abund)) %>% 
+  mutate(rank = row_number()) %>% 
+  slice_head(n = 3) %>% 
+  ungroup() %>% 
+  select(-starts_with("total")) %>% 
+  pivot_wider(names_from = size_group, values_from = comname) %>% 
+  mutate(survey_area = factor(survey_area, levels = area_levels)) %>% 
+  arrange(survey_area) %>% 
+  select(survey_area, rank, S, `S-M`, M, `M-L`, L) %>% 
+  group_by(survey_area) %>% 
+  gt() %>% 
+    tab_header(title = "Most Abundant Overall")
+
+abund_table
+```
+
+
+### Most Species Biomass
+
+```{r}
+# Most biomass
+biom_table <- top_species %>% 
+  arrange(desc(total_bio)) %>% 
+  mutate(rank = row_number()) %>% 
+  slice_head(n = 3) %>% 
+  ungroup() %>% 
+  select(-starts_with("total")) %>% 
+  pivot_wider(names_from = size_group, values_from = comname) %>% 
+  mutate(survey_area = factor(survey_area, levels = area_levels)) %>% 
+  arrange(survey_area) %>% 
+  select(survey_area, rank, S, `S-M`, M, `M-L`, L) %>% 
+  group_by(survey_area) %>% 
+  gt() %>% 
+    tab_header(title = "Most Biomass Overall")
+
+biom_table
+```
+
+
 ### 1kg Bin Changes
+
+How has the fraction of total abundance shifted for these weight-bins:
 
 ```{r}
 ggplot(even_breaks_summary, aes(est_year, percent_abund, color = season)) +
@@ -1050,8 +1136,6 @@ ggplot(even_breaks_summary, aes(est_year, percent_abund, color = season)) +
   scale_y_continuous(labels = label_percent()) +
   facet_grid(size_range*size_group~survey_area, scales = "free") +
   labs(y = "% / Seasonal Abundance", x = "Year")
-
-
 
 ```
 
@@ -1138,26 +1222,77 @@ Bottom temperatures are from the DuPontavice and Saba combined bottom temperatur
 
 
 
+
+# Model linear trends in time
+btemp_mods <- lmer(
+  formula = bot_temp ~ est_year * survey_area * season + (1|est_year),
+  data = wigley_bmspectra_model_df)
+
+
+
+# change the stupid labels around because
+btemp_preds <- as.data.frame(
+    # Model predictions
+    ggpredict(
+        btemp_mods, 
+        terms = ~ est_year * survey_area * season) ) %>% 
+    mutate(
+        survey_area = factor(group, levels = area_levels_long),
+        season = factor(facet, levels = c("Spring", "Fall")))
+btemp_signif <- emtrends(
+      object = btemp_mods,
+      specs =  ~ survey_area*season,
+      var = "est_year") %>% 
+      as_tibble() %>% 
+      mutate(
+        zero = 0,
+        non_zero = if_else(between(zero, lower.CL, upper.CL), F, T))
+btemp_trend_predictions <- left_join(btemp_preds, btemp_signif)  %>% 
+  mutate(survey_area = group,
+         survey_area = factor(survey_area, levels = area_levels_long),
+         season = factor(season, levels = c("Spring", "Fall")))
+
+
+
+
 # Plot temperatures
 temp1 <- wigley_bmspectra_model_df %>% 
-  ggplot(aes(est_year, bot_temp, color = season)) +
-  geom_point(size = 0.8, alpha = 0.5) +
-  geom_ma(size = 1, n = 5, ma_fun = SMA, linetype = 1) +
+  ggplot() +
+  geom_ribbon(
+    data = filter(btemp_trend_predictions, non_zero == TRUE),
+    aes(x, ymin = conf.low, ymax = conf.high, fill = season),
+    linewidth = 1, alpha = 0.35) +
+  geom_point(
+    aes(est_year, bot_temp, color = season),
+    size = 0.8, alpha = 0.5) +
+  geom_ma(
+    aes(est_year, bot_temp, color = season, linetype = "5-Year Smooth"),
+    size = 1, n = 5, ma_fun = SMA) +
+  geom_line(
+    data = filter(btemp_trend_predictions, non_zero == TRUE),
+    aes(x, predicted, color = season, linetype = "Significant Trend"),
+    linewidth = 1, alpha = 1) +
   scale_color_gmri() + 
-  facet_grid(survey_area~.) +
+  scale_fill_gmri() + 
+  #scale_linetype_manual(values = c(1,1)) +
+  facet_grid(survey_area~., scales = "free") +
+  theme(legend.position = "right") +
   scale_y_continuous(labels = label_number(suffix = "\u00b0C")) +
-  labs(y = "Bottom Temperature", x = "Year", color = "5-Year Smooth")
+  labs(y = "Bottom Temperature", x = "Year", color = "Season",
+       fill = "Season", linetype = "Trend")
 
 
 
 temp1 
 ```
 
-Bottom temperatures have increased in all four regions. The distribution of seasonal bottom temperatures are such that Gulf of Maine experiences a much smaller difference in seasonal temperature swings than the other regions.
+Bottom temperatures have increased in all four regions (annual averages), but seasonally spring temperatures in SNE and MAB are stable. 
+
+
 
 ### Bottom Temperature Distributions
 
-Bottom temperatures are more seasonal in GB, SNE, and MAB. In the Gulf of Maine the difference in bottom temperatures
+The distribution of seasonal bottom temperatures are such that Gulf of Maine experiences a much smaller difference in seasonal temperature swings than the other regions. In the Gulf of Maine the difference in bottom temperature from Spring to Fall can be smaller than the differences in spring bottom temperature along the whole Northeast Shelf. 
 
 
 ```{r}
@@ -1235,16 +1370,14 @@ wigley_b_dist_plot <- wigley_bmspectra_model_df %>%
 wigley_b_dist_plot
 ```
 
-This makes me lean towards belief that the size distribution is more responsive on shorter time scales to the ambient water temperatures. 
-
-This to me also suggests that as a whole the community is less stationary and better able to respond to slower long-term trends in any individual region.
+This makes me lean towards belief that the size distribution is more responsive on shorter time scales to the ambient water temperatures in order to align so well with seasonal temperature swings. To me this suggests that as a whole the community is likely better equipped to respond to the long-term trends if they track larger absolute swings within the year.
 
 
 ```{r}
 wigley_bmspectra_model_df %>% 
   ggplot(aes(bot_temp, b)) +
   geom_point(aes(color = season, shape = survey_area)) +
-  geom_smooth(method = "lm", color = "black") +
+  geom_smooth(method = "gam", color = "black") +
   scale_color_gmri() +
   scale_x_continuous(labels = label_number(suffix = deg_c)) +
   labs(title = "Broad Relationship to Ambient Bottom Temperature")
@@ -1270,6 +1403,24 @@ wigley_bmspectra_model_df %>%
 
 ### Zooplankton Community Indices
 
+The `ecodata` package has changed the zooplankton indices around that it carries. It now contains "regime" metrics for 26 of the main zooplankton taxa.
+
+```{r}
+zoo_regimes <- ecodata::zoo_regime
+# zoo_anoms <- ecodata::zoo_abundance_anom
+zoo_regimes %>% 
+  filter(str_detect(Var, "calfin|chaeto|pseudo|oith")) %>% 
+  mutate(EPU = factor(EPU, levels = c("GOM", "GB", "MAB"))) %>% 
+ggplot(aes(Time, Value)) +
+  geom_point(
+    size = 0.8, alpha = 0.5) +
+  geom_ma(
+    aes(linetype = "5-Year Smooth"),
+    size = 1, n = 5, ma_fun = SMA) +
+  #scale_color_gmri() +
+  facet_grid(EPU~Var) +
+  labs()
+```
 
 
 ---
