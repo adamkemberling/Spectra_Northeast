@@ -23,7 +23,8 @@ gb <- filter(regions, area == "Georges Bank") %>% st_union() %>% st_as_sf()
 gom <- filter(regions, area == "Gulf of Maine") %>% st_union() %>% st_as_sf()
 mab <- filter(regions, area == "Mid-Atlantic Bight") %>% st_union() %>% st_as_sf()
 sne <- filter(regions, area == "Southern New England") %>% st_union() %>% st_as_sf()
-
+shelf <- st_union(regions) %>% st_as_sf()
+#ggplot(shelf) + geom_sf()
 
 
 # load BT Netcdf - Obtained directly from Hubert du Pontavice via email
@@ -57,6 +58,7 @@ gb_bt <- raster::mask(ponta, gb) %>% crop(., gb) %>% cellStats(mean) %>% as.data
 gom_bt <- raster::mask(ponta, gom) %>% crop(., gom) %>% cellStats(mean) %>% as.data.frame() %>% rownames_to_column("year")
 mab_bt <- raster::mask(ponta, mab) %>% crop(., mab) %>% cellStats(mean) %>% as.data.frame() %>% rownames_to_column("year")
 sne_bt <- raster::mask(ponta, sne) %>% crop(., sne) %>% cellStats(mean) %>% as.data.frame() %>% rownames_to_column("year")
+shelf_bt <- raster::mask(ponta, shelf) %>% crop(., shelf) %>% cellStats(mean) %>% as.data.frame() %>% rownames_to_column("year")
 
 
 # Put them in a list for using purrr::map etc. or bind_rows
@@ -64,7 +66,8 @@ all_bt <- list(
   "Georges Bank" = gb_bt,
   "Gulf of Maine" = gom_bt,
   "Southern New England" = sne_bt,
-  "Mid-Atlantic Bight" = mab_bt) %>% 
+  "Mid-Atlantic Bight" = mab_bt,
+  "Northeast Shelf" = shelf_bt) %>% 
   bind_rows(.id = "survey_area") %>% 
   setNames(c("survey_area", "year", "bot_temp")) %>% 
   mutate(year = str_sub(year, 2, 5),
@@ -93,6 +96,7 @@ gb_monthly <- raster::mask(bt_monthly, gb) %>% crop(., gb) %>% cellStats(mean) %
 gom_monthly <- raster::mask(bt_monthly, gom) %>% crop(., gom) %>% cellStats(mean) %>% as.data.frame() %>% rownames_to_column("date")
 mab_monthly <- raster::mask(bt_monthly, mab) %>% crop(., mab) %>% cellStats(mean) %>% as.data.frame() %>% rownames_to_column("date")
 sne_monthly <- raster::mask(bt_monthly, sne) %>% crop(., sne) %>% cellStats(mean) %>% as.data.frame() %>% rownames_to_column("date")
+shelf_monthly <- raster::mask(bt_monthly, shelf) %>% crop(., shelf) %>% cellStats(mean) %>% as.data.frame() %>% rownames_to_column("date")
 
 
 # Put them in a list for using purrr::map etc. or bind_rows
@@ -100,7 +104,8 @@ all_bt_monthly <- list(
   "Georges Bank" = gb_monthly,
   "Gulf of Maine" = gom_monthly,
   "Southern New England" = sne_monthly,
-  "Mid-Atlantic Bight" = mab_monthly) %>% 
+  "Mid-Atlantic Bight" = mab_monthly,
+  "Northeast Shelf" = shelf_monthly) %>% 
   bind_rows(.id = "survey_area") %>% 
   setNames(c("survey_area", "date", "bot_temp")) %>% 
   mutate(
@@ -115,7 +120,7 @@ all_bt_monthly <- list(
 # Plot the annual trends
 ggplot(all_bt_monthly, aes(date, bot_temp)) +
   geom_line(aes(color = survey_area)) +
-  facet_wrap(~survey_area)
+  facet_wrap(~survey_area, ncol = 1)
 
 
 ####  Saving to Box  ####

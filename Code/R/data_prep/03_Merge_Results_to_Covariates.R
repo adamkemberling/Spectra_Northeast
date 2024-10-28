@@ -24,12 +24,12 @@ wigley_bodymass_spectra <- read_csv(here::here("Data/processed/wigley_species_bo
 ####  Covariate Data  ####
 
 # vectors for factor levels
-area_levels <- c("GoM", "GB", "SNE", "MAB")
+area_levels <- c("Northeast Shelf", "GoM", "GB", "SNE", "MAB")
 area_levels_long <- c("Gulf of Maine", "Georges Bank", "Southern New England", "Mid-Atlantic Bight")
 
 # table to join for swapping shorthand for long-hand names
 area_df <- data.frame(
-  area = c("Scotian Shelf", "Gulf of Maine", "Georges Bank", "Southern New England", "Mid-Atlantic Bight", "All"),
+  area = c("Scotian Shelf", "Gulf of Maine", "Georges Bank", "Southern New England", "Mid-Atlantic Bight", "Northeast Shelf"),
   survey_area = c("SS", "GoM", "GB", "SNE", "MAB", "Northeast Shelf"),
   area_titles = c("Scotian Shelf", "Gulf of Maine", "Georges Bank", "Southern New England", "Mid-Atlantic Bight", "Northeast Shelf"))
 
@@ -55,10 +55,17 @@ landings_annual <- read_csv(here::here("Data/processed/BEET_GARFO_regional_finfi
 
 
 
+
+
+
 ####  2. Seasonal Bottom Temperatures  ####
 
 # Read in du pontavice bottom temperatures, 
 # these are averaged within survey_areas in Code/py/Annual_BT_Processing.ipynb
+
+# Timeseries are produced regionally in: 
+# 00_Bottom_Temp_Processing.R
+# 01_Average_Seasonal_BT.R
 
 # ## Annual Bottom temp
 # bot_temps <- read_csv(here::here("Data/processed", "trawl_region_bottom_temps.csv")) %>%
@@ -84,7 +91,7 @@ bot_temps <- read_csv(here::here("Data/processed", "trawl_region_seasonal_bottom
 # Small large index not present anymore, has "regimes"
 zoo_regimes <- ecodata::zoo_regime
 forage_index <- ecodata::forage_index
-plot_forage_anomaly(report = "NewEngland")
+ecodata::plot_forage_anomaly(report = "NewEngland")
 
 
 
@@ -95,6 +102,7 @@ plot_forage_anomaly(report = "NewEngland")
 
 
 #### Create Modeling Datasets  ####
+# These weren't intended to be modeled at shelf scale, so shelf gets dropped here
 
 # 1. Large Community Median Length + length spectra
 ffish_medlen_model_df     <- left_join(finfish_sizes, bot_temps) %>% left_join(landings_annual)

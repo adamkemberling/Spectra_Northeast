@@ -58,7 +58,7 @@ seasonal_bt <- bt_monthly %>%
   mutate(
     season = ifelse(month %in% str_pad(c(3:5), side = "left", pad = "0", width = 2), "Spring", NA),
     season = ifelse(month %in% str_pad(c(9:11), side = "left", pad = "0", width = 2), "Fall", season),
-    survey_area = factor(survey_area, levels = area_levels_long)) %>% 
+    survey_area = factor(survey_area, levels = c("Northeast Shelf", area_levels_long))) %>% 
   drop_na() %>% 
   group_by(survey_area, year, season) %>% 
   summarise(
@@ -74,7 +74,7 @@ seasonal_bt %>%
 
 # Which Months are coldest/hottest
 bt_monthly %>% 
-  mutate(survey_area = factor(survey_area, levels = area_levels_long)) %>% 
+  mutate(survey_area = factor(survey_area, levels = c("Northeast Shelf", area_levels_long))) %>% 
   drop_na() %>% 
   ggplot(aes(survey_area, bot_temp, color = month)) +
   geom_boxplot(position = position_dodge(width = 0.5)) +

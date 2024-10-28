@@ -109,6 +109,8 @@ landings_summ <- landings %>%
 # Save those
 write_csv(landings_summ, here::here("Data/processed/BEET_GARFO_regional_finfish_landings.csv"))
 
+
+
 # wtf is happening in 2023 - huge menhaden catch
 landings_summ %>% filter(survey_area == "Mid-Atlantic Bight", year == 2023)
 landings %>% 
