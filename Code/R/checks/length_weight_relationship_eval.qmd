@@ -1,0 +1,345 @@
+---
+title: "Length Weight Relationship Evaluations"
+author: "Adam Kemberling"
+date: "Updated on: `r Sys.Date()`"
+format: 
+  html:
+    toc: true
+    self-contained: true
+    code-fold: true
+execute:
+  echo: true
+  fig-width: 8
+  fig-height: 7
+  message: false
+  warning: false
+editor: source
+---
+
+
+
+```{r}
+# Libraries
+library(tidyverse)
+library(gmRi)
+library(rnaturalearth)
+library(scales)
+library(sf)
+library(gt)
+library(patchwork)
+library(lmerTest)
+library(emmeans)
+library(merTools)
+library(tidyquant)
+library(ggeffects)
+library(performance)
+library(gtsummary)
+library(gt)
+library(sizeSpectra)
+library(ggdist)
+library(pander)
+library(ggh4x)
+conflicted::conflict_prefer("select", "dplyr")
+conflicted::conflict_prefer("filter", "dplyr")
+conflicted::conflicts_prefer(lmerTest::lmer)
+
+# Processing functions
+source(here::here("Code/R/Processing_Functions.R"))
+
+# ggplot theme
+theme_set(
+  theme_gmri(
+    rect = element_rect(fill = "white", color = NA), 
+    strip.text.y = element_text(angle  = 0),
+    axis.text.x = element_text(size = 8),
+    legend.position = "bottom"))
+
+
+
+# vectors for factor levels
+area_levels <- c("GoM", "GB", "SNE", "MAB")
+area_levels_long <- c("Gulf of Maine", "Georges Bank", "Southern New England", "Mid-Atlantic Bight")
+area_levels_all <- c("Northeast Shelf", area_levels)
+area_levels_long_all <- c("Northeast Shelf", area_levels_long)
+
+# table to join for swapping shorthand for long-hand names
+area_df <- data.frame(
+  area = c("Scotian Shelf", "Gulf of Maine", "Georges Bank", "Southern New England", "Mid-Atlantic Bight", "Northeast Shelf"),
+  survey_area = c("SS", "GoM", "GB", "SNE", "MAB", "Northeast Shelf"),
+  area_titles = c("Scotian Shelf", "Gulf of Maine", "Georges Bank", "Southern New England", "Mid-Atlantic Bight", "Northeast Shelf"))
+
+
+# Degree symbol
+deg_c <- "\u00b0C"
+
+
+```
+
+# What are we checking?
+
+Is `numlen_adj` properly balancing out with abundnace?
+
+Is the estimated biomass from length-weight keys similar to the bulk biomass from the survey? 
+
+Are there specific species biases, or seasonal issues?
+
+What are the body-size percentiles for length and weight?
+
+```{r}
+#| label: load input data usecd to estimate spectra
+
+# Data used for Wigley estimates
+wigley_in <- read_csv(here::here("Data/processed/wigley_species_trawl_data.csv"))
+finfish_in <- read_csv(here::here("Data/processed/finfish_trawl_data.csv"))
+```
+
+
+
+### Numlen Adjusted
+
+Lengths are measured for all individuals typically. The data records are such that there is a row for each unique species-sex-length record and when there are multiple individuals in the sample with the same length measurement this is recorded in the `numlen` field. In some situations this is not possible, and lengths are taken from a subset of the total sample for each species. There was also a survey methodology change in 2008, and with this survey change there were adjustments applied to the `abundance` totals for each species. In both of these cases `numlen` values remain unaffected, and only capture the abundance of individuals at each length measured. To achieve consistency between `abundance` (which is the total of individuals by species) and the sum() of `numlen` we apply a proportional adjustment of `numlen`.
+
+If properly done, `sum(numlen_adj)` should equal `abundance` for each tow.
+
+```{r}
+
+# Station Totals
+wigley_station_abunds <- wigley_in %>% distinct(est_towdate, est_year, season, station, comname, catchsex, abundance, biomass_kg)
+finfish_station_abunds <- finfish_in %>% distinct(est_towdate, est_year, season, station, comname, catchsex, abundance, biomass_kg) 
+
+# Are sexes weighed separately for bulk abundance/biomass
+
+
+# bulk station totals
+wigley_station_totals <- wigley_station_abunds %>% 
+  group_by(est_year, season) %>% 
+  summarise(
+    abundance = sum(abundance, na.rm = T),
+    biomass_kg = sum(biomass_kg, na.rm = T),
+    .groups = "drop")
+
+# Average species per tow
+finfish_station_abunds %>% 
+  group_by(est_towdate, station) %>% 
+  summarise(n_species = mean(n_distinct(comname)),
+            .groups = "drop") %>% 
+  summarise(avg_species = mean(n_species))
+
+# Cod average number/weight per tow
+wigley_station_abunds %>% 
+  filter(comname == "atlantic cod") %>% 
+  summarise(
+    mean_abund = mean(abundance, na.rm = T),
+    mean_biom = mean(biomass_kg, na.rm = T))
+
+
+
+# Numlen based totals
+wigley_numlen_totals <- wigley_in %>% group_by(est_towdate, est_year, season, station, comname, catchsex, abundance, biomass_kg) %>% 
+  summarise(
+    numlen = sum(numlen, na.rm = T),
+    numlen_adj = sum(numlen_adj, na.rm = T),
+    sum_weight_kg= sum(sum_weight_kg, na.rm = T),
+    .groups = "drop") %>% 
+  group_by(est_year, season) %>% 
+  summarise(
+    numlen = sum(numlen, na.rm = T),
+    numlen_adj = sum(numlen_adj, na.rm = T),
+    sum_weight_kg= sum(sum_weight_kg, na.rm = T),
+    .groups = "drop")
+  
+
+
+ggplot() +
+  geom_line(
+    data = wigley_station_totals,
+    aes(est_year, abundance, color = season, linetype = "abundance column")) +
+    geom_line(
+    data = wigley_numlen_totals,
+    aes(est_year, numlen_adj, color = season, linetype = "numlen_adj column"),
+    linewidth = 1) +
+    facet_wrap(~season, nrow = 2) +
+  labs(title = "Abundance & numlen_adj - same")
+```
+
+
+### Biomass and Estimated Biomass
+
+```{r}
+
+ggplot() +
+  geom_line(
+    data = wigley_station_totals,
+    aes(est_year, biomass_kg, color = season, linetype = "biomass column")) +
+    geom_line(
+    data = wigley_numlen_totals,
+    aes(est_year, sum_weight_kg, color = season, linetype = "estimated length-weight biomass"),
+    linewidth = 1) +
+    facet_wrap(~season, nrow = 2) +
+  labs(title = "Biomass and Estimated L-W Biomass - close")
+```
+
+
+
+### Season & Species Fits
+
+
+```{r}
+
+
+# Get the total weights for each station, then do it each year for every species
+mismatch_ranks <- function(x){
+  species_summaries <- x %>% 
+    group_by(est_towdate, est_year, comname, id, season, catchsex) %>% 
+    summarise(
+      number_caught = sum(numlen_adj, na.rm = T),
+      length_weight_biomass = sum(sum_weight_kg, na.rm = T),
+      .groups = "drop") 
+  
+  tow_totals <- x %>% 
+    distinct(est_towdate, est_year, season, station, id,  comname, catchsex, abundance, biomass_kg) %>% 
+    group_by(est_towdate, est_year, comname, id, season, catchsex) %>% 
+    summarise(
+      ship_measured_biomass = sum(biomass_kg, na.rm = T),
+      .groups = "drop") 
+  
+  
+    # join the two sources and get difference
+   species_summaries <- species_summaries %>% 
+     left_join(tow_totals) %>% 
+     mutate(lw_bias = ship_measured_biomass - length_weight_biomass) 
+    
+  # Format rankings to plot
+  n_species <- length(unique(species_summaries$comname))
+  ranks <- species_summaries %>% 
+    mutate(
+      comname = fct_reorder(.f = comname, .x = lw_bias, mean),
+      species_rank = as.numeric(comname),
+      extremes = ifelse(species_rank >= n_species - 20, "Bias Towards Under-Estimation", NA),
+      extremes = ifelse(species_rank <= 20, "Bias Towards Over-Estimation", extremes)) 
+  
+  return(ranks)
+  
+}
+
+
+
+# Plot flags top and bottom 15 species that don't match well with survdat$biomass
+mismatch_plot <- function(x, outlierz = T){
+  # All ranks in one panel
+  all_ranks <- x %>% 
+    ggplot(aes(lw_bias, species_rank)) +
+      geom_boxplot(aes(group = species_rank), color = "gray60", outliers = outlierz) +
+      geom_boxplot(data = filter(x, is.na(extremes) == FALSE),
+                   aes(group = species_rank, color = extremes), outliers = outlierz) +
+      geom_vline(xintercept = 0, size = 0.5, color = "black", linetype = 2) +
+      scale_x_continuous(labels = comma_format()) +
+      scale_color_gmri() +
+      guides("color" = guide_legend(title = "")) +
+      labs(x = "Weight Estimation Bias\nShipboard Weight - LW Biomass (kg)",
+           y = "Rank") +
+    theme(
+      # legend.position = "inside",
+      # legend.position.inside = c(0.2, 1),
+      legend.position = "top")
+  
+  # Focus on top 5
+  top_5 <- x %>% 
+    filter(extremes == "Bias Towards Under-Estimation") %>% 
+    ggplot(aes(lw_bias, comname)) +
+      geom_boxplot(aes(group = species_rank), 
+                   color = gmri_cols("lv orange"), 
+                   outlier.colour = "gray80", outliers = outlierz) +
+      scale_color_gmri() +
+      scale_x_continuous(labels = comma_format()) +
+      labs(x = "",
+           y = "", 
+           subtitle = "L-W biomass < 'survdat$Biomass'") +
+    theme(title = element_text(hjust = 0.5))
+  
+  # Focus on bottom 5
+  bot_5 <- x %>% 
+    filter(extremes == "Bias Towards Over-Estimation") %>% 
+    ggplot(aes(lw_bias, comname)) +
+      geom_boxplot(aes(group = species_rank), 
+                   color = gmri_cols("gmri blue"), 
+                   outlier.colour = "gray80", 
+                   outliers = outlierz) +
+      scale_color_gmri() +
+      scale_x_continuous(labels = comma_format()) +
+      labs(x = "Weight Estimation Bias\nShipboard Weight - LW Biomass (kg)",
+           y = "", 
+           subtitle = "L-W mass > 'survdat$Biomass'") +
+    theme(title = element_text(hjust = 0.5))
+    
+  
+  
+  # Patchwork plot
+  plot_out <- all_ranks | (top_5/bot_5)
+  return(plot_out)
+}
+```
+
+```{r}
+#| fig-height: 10
+#| fig-width: 8
+
+
+# Just Wigley
+wigley_ranks <- wigley_in %>% 
+  mismatch_ranks() 
+
+# Wigley mismatch plot
+wigley_ranks %>% 
+  mismatch_plot(outlierz = T)
+
+
+```
+
+### When were outlier events for Dogfish
+
+```{r}
+
+df_outliers <- check_outliers(wigley_ranks %>% filter(comname == "spiny dogfish") %>% pull(lw_bias)) %>% as.data.frame()
+
+bind_cols(filter(wigley_ranks, comname == "spiny dogfish"), df_outliers) %>% 
+  ggplot(aes(est_year)) +
+    geom_point(
+      aes(y = lw_bias, 
+      color = factor(catchsex),
+      shape = factor(Outlier))) +
+  facet_wrap(~season, nrow = 2)
+
+# How many are outliers?
+sum(df_outliers$Outlier)/nrow(df_outliers)*100
+
+
+```
+
+
+### Are Dogfish Biases Sex or Season Specific
+
+
+```{r}
+
+
+
+
+# Just Wigley
+wigley_ranks <- wigley_in %>% 
+  mismatch_ranks() 
+
+# Wigley mismatch plot
+wigley_ranks %>% 
+  mismatch_plot(outlierz = F)
+
+```
+
+
+### Body Size Percentile Exploration
+
+
+```{r}
+
+```
+

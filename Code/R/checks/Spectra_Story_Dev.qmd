@@ -1645,12 +1645,13 @@ landings_annual <- read_csv(here::here("Data/processed/BEET_GARFO_regional_finfi
          est_year = year,
          total_weight_lb = total_live_lb)
 
+shelf_landings_annual <-  mutate(landings_annual, survey_area = "Northeast Shelf") %>% 
+    group_by(est_year, survey_area) %>% 
+    summarise(total_weight_lb = sum(total_weight_lb, na.rm = T))
 
 # Plot annual totals
 bind_rows(list(
-  mutate(landings_annual, survey_area = "Northeast Shelf") %>% 
-    group_by(est_year, survey_area) %>% 
-    summarise(total_weight_lb = sum(total_weight_lb, na.rm = T)),
+  shelf_landings_annual,
   landings_annual)) %>% 
   mutate(survey_area = factor(survey_area, levels = area_levels_long_all)) %>% 
   filter(est_year <= 2019) %>% 
@@ -1670,6 +1671,8 @@ bind_rows(list(
 ### Zooplankton Community Indices
 
 The `ecodata` package has changed the zooplankton indices around that it carries. It now contains "regime" metrics for 26 of the main zooplankton taxa.
+
+https://noaa-edab.github.io/tech-doc/zoo_abundance_anom.html 
 
 ```{r}
 zoo_regimes <- ecodata::zoo_regime
@@ -1704,6 +1707,8 @@ ggplot(aes(Time, Value)) +
 This section is likely to change
 
 The following model has been used to determine the relationship between landings and seasonal bottom temperature on `b`.
+
+The Northeast Shelf as a whole is not included as its own region in these models, but is plotted below with points just for visual context.
 
 
 ```
@@ -1761,6 +1766,9 @@ mod2 <- lmer(
 Looking at all the data there is a strong relationship between seasonal size distribution and temperature.
 
 ```{r}
+#| label: bottom temperature overall plot
+
+
 btemp_overall <- ggplot(wtb_model_df, aes(bot_temp, b)) +
   geom_point(aes(shape = survey_area, color = season)) +
   scale_color_gmri() +
@@ -1779,7 +1787,7 @@ If we use yearly region * season combinations as our units of comparison the rel
 
 
 ```{r}
-#| label: new bt plot
+#| label: new bt region*season plot
 
 
 # Clean up the plot:
@@ -1810,7 +1818,6 @@ mod2_emtrend <- emtrends(
   mutate(
     zero = 0,
     non_zero = if_else(between(zero, lower.CL, upper.CL), F, T))
-
 
 
 
@@ -1855,6 +1862,7 @@ A spring spectra is not any more/less steep if spring is hotter or colder than u
 
 ### Landings Relationship
 
+Since landings are annual there won't be any seasonal interaction, only an intercept adjustment for the survey season. 
 
 ```{r}
 #| label: new landings
@@ -1866,7 +1874,7 @@ mod2_preds <- as.data.frame(
     mod2, 
     terms = ~ total_weight_lb * survey_area * season))   %>% 
   mutate(
-    survey_area = factor(group, levels = area_levels),
+    survey_area = factor(group, levels = area_levels_long_all),
     season = factor(facet, levels = c("Spring", "Fall")))
 
 
@@ -1923,6 +1931,11 @@ mod2_preds %>%
 With the old landings data we had trouble determining attribution from the models with both temperature and landings simultaneously due to strong collinearities. This may no longer be the case, lets look. 
 
 The bigger issue looks to be the relationship between survey season + region and bottom temperature.  There are other phenological dynamics (spring plankton bloom, seasonal migrations, spawning, stratification etc.) that happen seasonally that I am hesitant to use temperature alone without controlling for season.
+
+If we check variance inflation factors for the model we currently have nearly all predictors have very high VIF values, beyond what is the typical cutoff.
+
+Which is unfortunate, because it seems like its a pretty reasonable model otherwise.
+
 
 ```{r}
 
