@@ -235,7 +235,10 @@ This document will be split into two sections (the second potentially moving to 
 
 # Part 1: Summary of Trends
 
-For the first section the focus is on understanding changes in the size structure. This will be done using length and bodymass spectra, large and small fish indices, and looking at how body mass size quantiles have moved over time.
+For the first section the focus is on understanding changes in the size structure. This will be done using three metrics: 
+ 1. length and bodymass spectra 
+ 2. large and small fish indices
+ 3. Body length/mass size quantiles changes over time.
 
 This section should address: Has the size distribution changed over time, where has it changed, and some nuance around what aspects about the distribution have shifted.
 
@@ -254,6 +257,26 @@ I am thinking this would be two panel plots (all-spp length, Wigley-spp biomass)
 # Data used for Wigley estimates
 wigley_in <- read_csv(here::here("Data/processed/wigley_species_trawl_data.csv"))
 finfish_in <- read_csv(here::here("Data/processed/finfish_trawl_data.csv"))
+
+# Groundfish targeted stocks
+targeted_species <- c(
+  "atlantic cod",
+  "haddock",
+  "american plaice",
+  "white hake",
+  "witch flounder",
+  "winter flounder",
+  "yellowtail flounder",
+  "pollock",
+  "acadian redfish",
+  "atlantic halibut",
+  "windowpane flounder",
+  "ocean pout",
+  "atlantic wolffish")
+
+# filter the groundfish complex
+gfish_comp <- filter(wigley_in, comname %in% targeted_species)
+
 ```
 
 #### Aside: Biomass Fraction in Each Community
@@ -280,24 +303,38 @@ wig_biomass_total <- wigley_in %>%
   sum()
 
 ffish_biomass_total <- finfish_in %>% 
-  distinct(est_towdate, cruise6, station, stratum, tow, comname,  biomass_kg) %>%   pull(biomass_kg) %>% 
+  distinct(est_towdate, cruise6, station, stratum, tow, comname,  biomass_kg) %>%   
+  pull(biomass_kg) %>% 
+  sum()
+
+gfish_total  <- gfish_comp %>% 
+  distinct(est_towdate, cruise6, station, stratum, tow, comname,  biomass_kg) %>%   
+  pull(biomass_kg) %>% 
   sum()
 
 # Make a table for display
 tibble(
-  "Community" = c("All (including crustaceans)", "All finfish", "Wigley Species Subset"),
-  "Biomass Total" = c(raw_totals, ffish_biomass_total, wig_biomass_total)) %>% 
+  "Community" = c("All (including crustaceans)", "All finfish", "Wigley Species Subset", "Groundfish Complex"),
+  "Biomass Total" = c(raw_totals, ffish_biomass_total, wig_biomass_total, gfish_total)) %>% 
   mutate(`% of Total` = (`Biomass Total` / raw_totals)*100) %>% 
   gt()
 
 ```
 
+The general tradeoffs are this: 
+
+The more selective we are about which species we include, then the more targeted we can be about questions of "why" and the more assured about their consistent sampling/selectivity for the gear.
+
+If we are too selective then we may miss broader patterns. If we aren't selective enough, then we may likely be incorporating unnecessary noise that may never be resolved.
+
+Using the groundfish complex seems safe in the sense that those species are all well sampled and are well studied. They also are most likely to show a predictable response to fisheries landings.
+
+Using the whole finfish community has me feeling enigmatic whether I'm looking at a community resilient to disturbance, or just noise stemming from inclusion of poorly/inconsistently sampled species.
 
 
 ## A. Size Spectra Trends
 
 For the figures in part 1: non-zero trends over time have been highlighted in the appropriate plot panels with linear trends overlaid.
-
 
 
 ```{r}
@@ -351,7 +388,7 @@ spectra_results <-  bind_rows(wigley_bmspectra_all, ffish_lenspectra_all) %>%
 
 # Model linear trends in time
 bmspectra_mod_wig_all <- lmer(
-  formula = b ~ est_year * survey_area * season + (1|est_year),
+  formula = b ~ scale(est_year) * survey_area * season + (1|est_year),
   data = wigley_bmspectra_all)
 
 # Get the predictions and flag whether they are significant
@@ -424,7 +461,7 @@ bmspectra_trend_p
 
 # Model linear trends in time
 lenspectra_mod_all <- lmer(
-  formula = b ~ est_year * survey_area * season + (1|est_year),
+  formula = b ~ scale(est_year) * survey_area * season + (1|est_year),
   data = ffish_lenspectra_all)
 
 # Get the predictions and flag whether they are significant
@@ -559,13 +596,13 @@ size_results <- bind_rows(
 
 # Get trends:
 len_mod_ffish <- lmer(
-  formula = med_len_cm ~ est_year * survey_area * season + (1|est_year),
+  formula = med_len_cm ~ scale(est_year) * survey_area * season + (1|est_year),
   data = finfish_size_df)
 # len_mod_wig <- lmer(
 #   formula = med_len_cm ~ est_year * survey_area * season + (1|est_year),
 #   data = wigley_size_df)
 wt_mod_wig <- lmer(
-  formula = med_wt_kg ~ est_year * survey_area * season + (1|est_year),
+  formula = med_wt_kg ~ scale(est_year) * survey_area * season + (1|est_year),
   data = drop_na(wigley_size_df, med_wt_kg))
 
 
@@ -675,15 +712,21 @@ There are a number of years when median weight surges in MAB. For these situatio
 We also don't see a shelf-wide decline in size so I might need to check what Friedland did or prepare for a confrontation.
 
 
-## C. Small/Large Fish Trends (True Percentiles)
+## C. Small/Large Fish Trends
 
-Data for part C. comes from the Wigly species subset to set percentiles based on individual bodymass.
+The following figures frame "large fish" as individuals with length/bodymass greater than the 90th percentile for all years within that region. "Small fish" are considered smaller than the 10th percentile of the distribution.
+
+Originally this had been done independently of species, I have now changed that
+
+**NOTE:**
+Percentiles are determined using `DescTools::Quantile()` which uses `numlen_adj` to weight everything by abundance.
 
 
-The following figures frame "large fish" as individuals with bodymass greater than the 90th percentile for all years within that region. "Small fish" are considered smaller than the 10th percentile of the mass distribution.
+::: panel-tabset
+
+### All Finfish Length LFI
 
 If we look at the size distribution **across all species** these are the cutoff percentiles based on length.
-
 
 ```{r}
 # Get percentiles based on length for all species
@@ -700,59 +743,12 @@ DescTools::Quantile(
   tab_spanner(label = "Percentile", columns = -survey_area) %>% 
   cols_label("survey_area" = "")
 
-# # Assign large/small
-# finfish_in <- finfish_in %>% 
-#   mutate(
-#     small = ifelse(length_cm < 5, T, F),
-#     large = ifelse(length_cm > 41, T, F))
-# 
-# 
-# 
-# # Get total abundance
-# total_abundbio_ffish <- finfish_in %>% 
-#     mutate(survey_area = "Northeast Shelf") %>% 
-#     group_by(survey_area, est_year) %>% 
-#     summarise(
-#       total_abund = sum(numlen_adj),
-#       .groups = "drop")
-#   
-#   
-# # Get large fish bio
-# lf_abundbio_ffish <- finfish_in %>% 
-#   mutate(survey_area = "Northeast Shelf") %>% 
-#   group_by(survey_area, est_year) %>% 
-#   summarise(
-#     small_abund = sum(numlen_adj * small),
-#     large_abund = sum(numlen_adj * large),
-#     .groups = "drop")
-# 
-# # Join and divide
-# lfi_ffish <- left_join(total_abundbio_ffish, lf_abundbio_ffish) %>% 
-#   mutate(
-#     LFI = large_abund / total_abund,
-#     SFI = small_abund / total_abund)  %>% 
-#   mutate(survey_area = factor(survey_area, levels = area_levels_all)) 
-# 
-# lfi_ffish %>% 
-#   pivot_longer(cols = c(LFI, SFI), names_to = "Index", values_to = "val") %>% 
-#   mutate(size_thresh = if_else(Index == "LFI", "> 41cm", "< 5cm")) %>% 
-#   #pivot_longer(cols = ends_with("abund"))
-#   ggplot(aes(est_year, val, color = Index)) +
-#   geom_line() +
-#   scale_color_gmri() +
-#   scale_y_continuous(labels = label_percent()) +
-#   facet_wrap(~Index*size_thresh, nrow = 2) +
-#   labs(
-#     x = "Year",
-#     y = "Percent of Overall Abundance",
-#     title = "All Finfish, Large and Small Fish Indices, by Length"
-#   )
 ```
 
 
+Looking instead at the size distributions **independently for all species** these are the new cutoff percentiles based on length for ten species.
+
 ```{r}
-
-
 # Get percentiles based on length for each species
 # # Get 90th or 95th percentile as size threshold
 # Do them separately
@@ -783,10 +779,20 @@ species_size_quants %>%
   gt() %>% 
   tab_header(title = "Finfish Community - Body Length Quantiles (cm)") %>% tab_spanner(label = "Percentile", columns = -survey_area) %>% 
   cols_label("survey_area" = "")
+```
+
+The following figure shows changes in seasonal large and small fish indices within each region. The large and small size thresholds are set for each species independently using their length distributions as in the table above.
 
 
+The axes on these are: $$\frac{\sum{individuals_{ijsk}
+> size~threshold_k}}
+{\sum{individuals_{ijs}}} * 100$$ 
 
-# Assign large/small
+for each: $year_i$, $region_j$, $season_s$ & $species_k$.
+
+
+```{r}
+# Assign large/small indicators
 finfish_lfi <- finfish_in %>% 
   left_join(select(species_size_quants, comname, `10%`, `90%`)) %>%   
   mutate(
@@ -794,68 +800,133 @@ finfish_lfi <- finfish_in %>%
     large = ifelse(length_cm > `90%`, T, F))
 
 
-
-# Get total abundance
+# Get total abundance in each area*year*season
 total_abundbio <- bind_rows(
     mutate(finfish_lfi, survey_area = "Northeast Shelf"),
     finfish_lfi) %>% 
   group_by(survey_area, est_year, season) %>% 
   summarise(
-    total_abund = sum(numlen_adj),
-    #total_bio = sum(sum_weight_kg),
+    total_abund = sum(numlen_adj, na.rm = T),
     .groups = "drop")
   
   
-# Get large fish bio
+# Get large/small fish  abundances
 lf_abundbio <- bind_rows(
     mutate(finfish_lfi, survey_area = "Northeast Shelf"),
-    finfish_lfi) %>% 
-  group_by(survey_area, est_year, season) %>% 
+    finfish_lfi) %>%
+  group_by(survey_area, comname, est_year, season) %>%
   summarise(
     small_abund = sum(numlen_adj * small),
     large_abund = sum(numlen_adj * large),
+    .groups = "drop") %>% 
+  group_by(survey_area, est_year, season) %>% 
+  summarise(
+    small_abund = sum(small_abund, na.rm = T),
+    large_abund = sum(large_abund, na.rm = T),
     .groups = "drop")
 
 # Join and divide
-lfi <- left_join(total_abundbio, lf_abundbio) %>% 
+lfi <- left_join(total_abundbio, lf_abundbio) %>%
   mutate(
     LFI = large_abund / total_abund,
-    SFI = small_abund / total_abund)  %>% 
+    SFI = small_abund / total_abund)  %>%
   mutate(
     survey_area = factor(survey_area, levels = area_levels_all),
-    season = factor(season, levels = c("Spring", "Fall"))) %>% 
-  left_join(
-    select(area_size_quants, survey_area, `10%`, `90%`) %>% 
-      mutate(across(-survey_area, \(x) str_c(round(x, 2), " kg"))))
+    season = factor(season, levels = c("Spring", "Fall"))) 
 
 
- 
-lfi_ffish %>%
-  pivot_longer(cols = c(LFI, SFI), names_to = "Index", values_to = "val") %>%
-  mutate(size_thresh = if_else(Index == "LFI", "> 90th Percentile", "< 10th Percentile")) %>%
-  ggplot(aes(est_year, val, color = Index)) +
-  geom_line() +
-  scale_color_gmri() +
-  scale_y_continuous(labels = label_percent()) +
-  facet_wrap(~fct_rev(Index)*size_thresh, nrow = 2) +
-  labs(
-    x = "Year",
-    y = "Percent of Overall Abundance",
-    title = "All Finfish, Large and Small Fish Indices, by Length")
+# #plot it
+# lfi %>%
+#   pivot_longer(cols = c(LFI, SFI), names_to = "Index", values_to = "val") %>%
+#   mutate(size_thresh = if_else(Index == "LFI", ">90th Percentile\nSpecies-Based", "<10th Percentile\nSpecies-Based")) %>%
+#   ggplot(aes(est_year, val, color = season)) +
+#   geom_point(
+#     aes(est_year, val, color = season),
+#     size = 0.8, alpha = 0.5) +
+#   geom_ma(
+#     aes(est_year, val, color = season, linetype = "5-Year Moving Average"), 
+#     n = 5, ma_fun = SMA) +
+#   scale_fill_gmri() +
+#   scale_color_gmri() +
+#   scale_y_continuous(labels = label_percent()) +
+#   facet_nested(survey_area~fct_rev(Index)*size_thresh) +
+#   labs(
+#     x = "Year",
+#     y = "Percent of Overall Abundance",
+#     title = "All Finfish, Large and Small Fish Indices, by Length")
 
 ```
 
 
-The following table shows what those bodymass percentiles are for each region **for the Wigley subset**. 
-
-
-
-**NOTE:**
-Percentiles are determined using `DescTools::Quantile()` which uses `numlen_adj` to weight everything by abundance.
 
 
 ```{r}
-#| label: weighted percentiles
+#| label: plot finfish lfi
+
+# Plot them as loing-term average
+
+# Plot the SFI
+sfi_p <- lfi %>% 
+  ggplot() +
+  geom_point(
+    aes(est_year, SFI, color = season),
+    size = 0.8, alpha = 0.5) +
+  geom_ma(
+    aes(est_year, SFI, color = season, linetype = "5-Year Moving Average"), 
+    n = 5, ma_fun = SMA) +
+  scale_fill_gmri() +
+  scale_color_gmri() +
+  scale_y_continuous(labels = label_percent()) +
+  theme(strip.text.y = element_blank()) +
+  facet_grid(survey_area~., scales = "free") +
+  labs(
+    x = "Year",
+    y = "Percent of Total Abundance",
+    title = "Finfish Species",
+    subtitle = "Small Fish Index\n(<10 Percentile\nSpecies-Length Distribution)",
+    fill = "Season",
+    color = "Season",
+    linetype = "")
+
+
+# Plot the LFI
+lfi_p <- ggplot(lfi) +
+  geom_point(
+    aes(est_year, LFI, color = season),
+    size = 0.8, alpha = 0.5) +
+  geom_ma(
+    aes(est_year, LFI, color = season, linetype = "5-Year Moving Average"), 
+    n = 5, ma_fun = SMA) +
+  scale_fill_gmri() +
+  scale_color_gmri() +
+  scale_y_continuous(labels = label_percent()) +
+  facet_grid(survey_area~., scales = "free") +
+  labs(
+    x = "Year",
+    y = "",
+    subtitle = "Large Fish Index\n(>90 Percentile\nSpecies-Length Distribution)",
+    fill = "Season",
+    color = "Season",
+    linetype = "")
+
+
+
+# Plot together
+(sfi_p | lfi_p) + plot_layout(guides = "collect")
+
+```
+
+
+### Wigley Regional LFI
+
+There was a question on whether to do LFI and SFI based on the species quantiles, or simply overall regional quantiles.
+
+
+The following table shows what the bodymass percentiles are for each region **for the Wigley subset**. These ignore seasonal and species specific benchmarks.
+
+
+```{r}
+#| label: wigley weighted percentiles
 
 # # Get 90th or 95th percentile as size threshold
 # Do them separately
@@ -883,59 +954,13 @@ area_size_quants %>%
   tab_header(title = "Wigley Species - Body Mass Quantiles (kg)") %>% tab_spanner(label = "Percentile", columns = -survey_area) %>% 
   cols_label("survey_area" = "")
 
-
-
-# Assign large/small
-wigley_in <- wigley_in %>% 
-  left_join(select(area_size_quants, survey_area, `10%`, `90%`)) %>%   
-  mutate(
-    small = ifelse(ind_weight_kg < `10%`, T, F),
-    large = ifelse(ind_weight_kg > `90%`, T, F))
-
-
-
-# Get total abundance
-total_abundbio <- bind_rows(
-    mutate(wigley_in, survey_area = "Northeast Shelf"),
-    wigley_in) %>% 
-  group_by(survey_area, est_year, season) %>% 
-  summarise(
-    total_abund = sum(numlen_adj),
-    total_bio = sum(sum_weight_kg),
-    .groups = "drop")
-  
-  
-# Get large fish bio
-lf_abundbio <- bind_rows(
-    mutate(wigley_in, survey_area = "Northeast Shelf"),
-    wigley_in) %>% 
-  group_by(survey_area, est_year, season) %>% 
-  summarise(
-    small_abund = sum(numlen_adj * small),
-    small_bio = sum(sum_weight_kg * small),
-    large_abund = sum(numlen_adj * large),
-    large_bio = sum(sum_weight_kg * large),
-    .groups = "drop")
-
-# Join and divide
-lfi <- left_join(total_abundbio, lf_abundbio) %>% 
-  mutate(
-    LFI = large_abund / total_abund,
-    SFI = small_abund / total_abund)  %>% 
-  mutate(survey_area = factor(survey_area, levels = area_levels_all)) %>% 
-  left_join(
-    select(area_size_quants, survey_area, `10%`, `90%`) %>% 
-      mutate(across(-survey_area, \(x) str_c(round(x, 2), " kg"))))
-
 ```
+
+Then this figure shows what the LFI and SFI indices are using those same overall benchmarks which ignore species:
 
 
 ```{r}
-#| label: assign large and small labels
-
-
-##### Large Fish Index  ####
-
+#| label: wigley lfi plots
 
 # Assign large/small
 wigley_in <- wigley_in %>% 
@@ -969,6 +994,8 @@ lf_abundbio <- bind_rows(
     large_bio = sum(sum_weight_kg * large),
     .groups = "drop")
 
+
+
 # Join and divide
 lfi <- left_join(total_abundbio, lf_abundbio) %>% 
   mutate(
@@ -977,12 +1004,94 @@ lfi <- left_join(total_abundbio, lf_abundbio) %>%
   mutate(survey_area = factor(survey_area, levels = area_levels_all)) %>% 
   left_join(
     select(area_size_quants, survey_area, `10%`, `90%`) %>% 
-      mutate(across(-survey_area, \(x) str_c(round(x, 2), " kg"))))
+    mutate(across(-survey_area, \(x) str_c(round(x, 2), " kg")))) %>% 
+  mutate(season = factor(season, levels = c("Spring", "Fall")))
+
+
+# #plot it
+# lfi %>%
+#   pivot_longer(cols = c(LFI, SFI), names_to = "Index", values_to = "val") %>%
+#   mutate(size_thresh = if_else(Index == "LFI", ">90th Percentile", "<10th Percentile")) %>%
+#   ggplot(aes(est_year, val, color = season)) +
+#   geom_point(
+#     aes(est_year, val, color = season),
+#     size = 0.8, alpha = 0.5) +
+#   geom_ma(
+#     aes(est_year, val, color = season, linetype = "5-Year Moving Average"), 
+#     n = 5, ma_fun = SMA) +
+#   scale_fill_gmri() +
+#   scale_color_gmri() +
+#   scale_y_continuous(labels = label_percent()) +
+#   facet_nested(survey_area~fct_rev(Index), scales = "free_y") +
+#   labs(
+#     x = "Year",
+#     y = "Percent of Overall Abundance",
+#     title = "Wigley species, Large and Small Fish Indices, by Weight")
+
 ```
 
-The following species are those which has representation in the large fish index:
 
-You might think: "Why is a 1kg acadian redfish a "large fish"?". That's a consequence of abundance declining with size pretty dramatically.
+
+
+```{r}
+#| label: plot wigley regional lfi
+
+
+# Plot them as loing-term average
+
+# Plot the SFI
+sfi_p <- lfi %>% 
+  ggplot() +
+  geom_point(
+    aes(est_year, SFI, color = season),
+    size = 0.8, alpha = 0.5) +
+  geom_ma(
+    aes(est_year, SFI, color = season, linetype = "5-Year Moving Average"), 
+    n = 5, ma_fun = SMA) +
+  scale_fill_gmri() +
+  scale_color_gmri() +
+  scale_y_continuous(labels = label_percent()) +
+  theme(strip.text.y = element_blank()) +
+  facet_grid(survey_area~., scales = "free") +
+  labs(
+    x = "Year",
+    y = "Percent of Total Abundance",
+    title = "Wigley Species",
+    subtitle = "Small Fish Index\n(<10 Percentile\nRegional-Mass Distribution)",
+    fill = "Season",
+    color = "Season",
+    linetype = "")
+
+
+# Plot the LFI
+lfi_p <- ggplot(lfi) +
+  geom_point(
+    aes(est_year, LFI, color = season),
+    size = 0.8, alpha = 0.5) +
+  geom_ma(
+    aes(est_year, LFI, color = season, linetype = "5-Year Moving Average"), 
+    n = 5, ma_fun = SMA) +
+  scale_fill_gmri() +
+  scale_color_gmri() +
+  scale_y_continuous(labels = label_percent()) +
+  facet_grid(survey_area~., scales = "free") +
+  labs(
+    x = "Year",
+    y = "",
+    subtitle = "Large Fish Index\n(>90 Percentile\nRegional-Mass Distribution)",
+    fill = "Season",
+    color = "Season",
+    linetype = "")
+
+
+
+# Plot together
+(sfi_p | lfi_p) + plot_layout(guides = "collect")
+
+```
+
+Using these broad group quantiles, we have the following species are represented within the large fish index:
+
 
 ```{r}
 big_fishes <- wigley_in %>% 
@@ -997,62 +1106,161 @@ pander(big_fishes$`Common Name:`)
 
 ```
 
+You might think: "Why is a 1kg acadian redfish a "large fish"?". That's a consequence of abundance declining with size pretty dramatically.
+
+
 There's really just so few "large" individuals that the percentiles sit quite small.
 
+
+
+
+
+### Wigley Species-Specific LFI
+
+Using species-specific quantiles shifts the story somewhat:
+
 ```{r}
-#| fig-height: 4
 
-# Weighted histograms are possible, we can overlay the median size as well
-shelf_median <- wigley_in %>% 
-  #filter(ind_weight_g >1) %>% 
+# Get percentiles based on length for each species
+# # Get 90th or 95th percentile as size threshold
+# Do them separately
+species_size_quants <- wigley_in %>% 
   mutate(survey_area = "Northeast Shelf") %>% 
-  group_size_metrics(
-    size_data = ., 
-    .abund_col = "numlen_adj", 
-    .group_cols = c("survey_area", "season"),
-    has_weights = TRUE, 
-    .weight_col = "ind_weight_kg")
+  unite("species_area", c(survey_area, comname), sep = "X", ) %>% 
+  split(.$species_area) %>% 
+  map_dfr(function(x,y){
+    
+    DescTools::Quantile(
+      # x$length_cm, 
+      x$ind_weight_kg,
+      weights = x$numlen_adj, 
+      probs = c(0.05, 0.1, 0.5, 0.90, .95)) %>% 
+      t() %>% 
+      as_tibble() 
+  }, .id = "species_area") %>% 
+  separate(col = species_area, into = c("survey_area", "comname"), sep = "X") %>% 
+  mutate(survey_area = factor(survey_area, levels = area_levels_all)) %>% 
+  arrange(survey_area)
 
 
-# Plot the weighted histogram
-wigley_in %>% 
-  filter(ind_weight_kg <= 10) %>% 
-  ggplot(aes(
-    x = ind_weight_g, 
-    weight = numlen_adj, 
-    fill = season)) + 
-  geom_histogram(
-    fill = "#535353") +
-  facet_wrap(~fct_rev(season), nrow = 2) +
-  scale_y_continuous(
-    transform = transform_log(base = 2),
-    labels = label_log(base = 2),
-    expand = expansion(add = c(0,0))) +
-  scale_x_continuous(
-    transform = transform_log(base = 2),
-    labels = label_log(base = 2),
-    breaks = 2^seq(0,16, 1),
-    limits = c(1, 2^15),
-    expand = expansion(add = c(0,0))) +
-  geom_vline(
-    data = shelf_median,
-    aes(xintercept = med_wt_kg*1000, 
-        color = season),
-    linewidth = 1) +
-  labs(title = "Overall Bodymass Distribution for Wigley Species",
-       subtitle = "Weights over 10kg removed, count not* normalized (expect slope ~0)",
-       x = "Mass (g)",
-       color = "Median")
+# Show the table
+species_size_quants %>% 
+  mutate_if(is.numeric, round, 2) %>% 
+  head(n = 10) %>% 
+  gt() %>% 
+  tab_header(title = "Wigley Community - Body Mass Quantiles (kg)") %>% tab_spanner(label = "Percentile", columns = -survey_area) %>% 
+  cols_label("survey_area" = "")
+
+```
+
+The following figure shows changes in seasonal large and small fish indices within each region. The large and small size thresholds are set for each species independently using their weight distributions as in the table above.
+
+```{r}
+# Assign large/small indicators
+wigley_lfi <- wigley_in %>% 
+  left_join(select(species_size_quants, comname, `10%`, `90%`)) %>%   
+  mutate(
+    small = ifelse(ind_weight_kg < `10%`, T, F),
+    large = ifelse(ind_weight_kg > `90%`, T, F))
+
+
+# Get total abundance in each area*year*season
+total_abundbio <- bind_rows(
+    mutate(wigley_lfi, survey_area = "Northeast Shelf"),
+    wigley_lfi) %>% 
+  group_by(survey_area, est_year, season) %>% 
+  summarise(
+    total_abund = sum(numlen_adj, na.rm = T),
+    .groups = "drop")
+  
+  
+# Get large/small fish  abundances
+lf_abundbio <- bind_rows(
+    mutate(wigley_lfi, survey_area = "Northeast Shelf"),
+    wigley_lfi) %>%
+  group_by(survey_area, comname, est_year, season) %>%
+  summarise(
+    small_abund = sum(numlen_adj * small),
+    large_abund = sum(numlen_adj * large),
+    .groups = "drop") %>% 
+  group_by(survey_area, est_year, season) %>% 
+  summarise(
+    small_abund = sum(small_abund, na.rm = T),
+    large_abund = sum(large_abund, na.rm = T),
+    .groups = "drop")
+
+# Join and divide
+lfi <- left_join(total_abundbio, lf_abundbio) %>%
+  mutate(
+    LFI = large_abund / total_abund,
+    SFI = small_abund / total_abund)  %>%
+  mutate(
+    survey_area = factor(survey_area, levels = area_levels_all),
+    season = factor(season, levels = c("Spring", "Fall"))) 
+
 
 ```
 
 
+```{r}
+#| label: plot wigley species lfi
 
-::: panel-tabset
+# Plot them as loing-term average
 
-### Shifting 10th & 90th Percentiles
+# Plot the SFI
+sfi_p <- lfi %>% 
+  ggplot() +
+  geom_point(
+    aes(est_year, SFI, color = season),
+    size = 0.8, alpha = 0.5) +
+  geom_ma(
+    aes(est_year, SFI, color = season, linetype = "5-Year Moving Average"), 
+    n = 5, ma_fun = SMA) +
+  scale_fill_gmri() +
+  scale_color_gmri() +
+  scale_y_continuous(labels = label_percent()) +
+  theme(strip.text.y = element_blank()) +
+  facet_grid(survey_area~., scales = "free") +
+  labs(
+    x = "Year",
+    y = "Percent of Total Abundance",
+    title = "Wigley Species",
+    subtitle = "Small Fish Index\n(<10 Percentile\nSpecies-Mass Distribution)",
+    fill = "Season",
+    color = "Season",
+    linetype = "")
 
-A 90th percentile fish is smaller than I feel it has been in the past, so I wanted to plot those quantiles over time. 
+
+# Plot the LFI
+lfi_p <- ggplot(lfi) +
+  geom_point(
+    aes(est_year, LFI, color = season),
+    size = 0.8, alpha = 0.5) +
+  geom_ma(
+    aes(est_year, LFI, color = season, linetype = "5-Year Moving Average"), 
+    n = 5, ma_fun = SMA) +
+  scale_fill_gmri() +
+  scale_color_gmri() +
+  scale_y_continuous(labels = label_percent()) +
+  facet_grid(survey_area~., scales = "free") +
+  labs(
+    x = "Year",
+    y = "",
+    subtitle = "Large Fish Index\n(>90 Percentile\nSpecies-Mass Distribution)",
+    fill = "Season",
+    color = "Season",
+    linetype = "")
+
+
+
+# Plot together
+(sfi_p | lfi_p) + plot_layout(guides = "collect")
+
+```
+
+### Shift in Regional Percentile Size
+
+A 90th percentile fish is smaller than I feel it has been in the past, so I wanted to plot those quantiles over time.
 
 Indeed, the 90th & 95th percentile size for fishes in the GOM was nearly 2x what it is today.
 
@@ -1127,7 +1335,7 @@ q95_p <- quants_long %>%
   labs(y = "", x = "Year", linetype = "")
 
 (q10_p | q90_p | q95_p) + plot_layout(guides = "collect", axes = "collect_x") +
-  plot_annotation(title = "Regional Size Percentile Changes")
+  plot_annotation(title = "Size Percentile Changes")
 
 
 ```
@@ -1135,133 +1343,118 @@ q95_p <- quants_long %>%
 10th percentile weights seem stable. 90th percentile body-weights have fluctuated over time.
 
 
-
-### LFI & SMI
-
-The axes on these are: $$\frac{\sum{individuals_{ijs}
-> mass~threshold}}
-{\sum{individuals_{ijs}}} * 100$$ for each: $year_i$, $region_j$, $season_s$.
-
-```{r}
-#| label: plot lfi as percent
-
-# Plot them as loing-term average
-
-# Plot the SFI
-sfi_p <- lfi %>% 
-  ggplot() +
-  geom_point(
-    aes(est_year, SFI, color = season),
-    size = 0.8, alpha = 0.5) +
-  geom_ma(
-    aes(est_year, SFI, color = season, linetype = "5-Year Moving Average"), 
-    n = 5, ma_fun = SMA) +
-  scale_fill_gmri() +
-  scale_color_gmri() +
-  scale_y_continuous(labels = label_percent()) +
-  theme(strip.text.y = element_blank()) +
-  facet_grid(survey_area~., scales = "free") +
-  labs(
-    x = "Year",
-    y = "Percent of Total Abundance",
-    title = "Small Fish Index\n(< 10th Percentile Bodymass)",
-    fill = "Season",
-    color = "Season",
-    linetype = "")
-
-
-# Plot the LFI
-lfi_p <- ggplot(lfi) +
-  geom_point(
-    aes(est_year, LFI, color = season),
-    size = 0.8, alpha = 0.5) +
-  geom_ma(
-    aes(est_year, LFI, color = season, linetype = "5-Year Moving Average"), 
-    n = 5, ma_fun = SMA) +
-  scale_fill_gmri() +
-  scale_color_gmri() +
-  scale_y_continuous(labels = label_percent()) +
-  facet_grid(survey_area~., scales = "free") +
-  labs(
-    x = "Year",
-    y = "",
-    title = "Large Fish Index\n(> 90th Percentile Bodymass)",
-    fill = "Season",
-    color = "Season",
-    linetype = "")
-
-
-
-# Plot together
-(sfi_p | lfi_p) + plot_layout(guides = "collect")
-
-```
-
-### Large and Small Fish Abundance
-
-This plots the abundance of individuals above/below the size thresholds as abundance.
-
-```{r}
-#| label: plot lfi in abundance
-
-# Plot them as loing-term average
-
-# Plot the SFI
-sfi_p <- lfi %>% 
-  ggplot() +
-  geom_point(
-    aes(est_year, small_abund, color = season),
-    size = 0.8, alpha = 0.5) +
-  geom_ma(
-    aes(est_year, small_abund, color = season, linetype = "5-Year Moving Average"), 
-    n = 5, ma_fun = SMA) +
-  scale_fill_gmri() +
-  scale_color_gmri() +
-  scale_y_continuous(labels = label_number()) +
-  theme(strip.text.y = element_blank()) +
-  facet_grid(survey_area~., scales = "free") +
-  labs(
-    x = "Year",
-    y = "Total Abundance",
-    title = "Small Fish Index\n(< 10th Percentile Bodymass)",
-    fill = "Season",
-    color = "Season",
-    linetype = "")
-
-
-# Plot the LFI
-lfi_p <- ggplot(lfi) +
-  geom_point(
-    aes(est_year, large_abund, color = season),
-    size = 0.8, alpha = 0.5) +
-  geom_ma(
-    aes(est_year, large_abund, color = season, linetype = "5-Year Moving Average"), 
-    n = 5, ma_fun = SMA) +
-  scale_fill_gmri() +
-  scale_color_gmri() +
-  scale_y_continuous(labels = label_number()) +
-  facet_grid(survey_area~., scales = "free") +
-  labs(
-    x = "Year",
-    y = "",
-    title = "Large Fish Index\n(> 90th Percentile Bodymass)",
-    fill = "Season",
-    color = "Season",
-    linetype = "")
-
-
-
-
-(sfi_p | lfi_p) + plot_layout(guides = "collect")
-
-```
-
 :::
 
 
 ## D. Decadal Binned Spectra Plot
 
 The following figure is a visual aid of the normalized biomass spectra for each decade.
+
+::: panel-tabset
+
+### Spring
+
+```{r}
+#| label: binned method gghack spring
+#| eval: true
+
+# We need to normalize to be comparable to the Edwards method
+# Might be able to just assign the bins and their widths, then divide the weights by that
+# ^ seems to work!
+
+# add the spectra slope values from MLE method as a side value, could use facet grid label
+
+# plot the normalized
+wigley_in %>% 
+  mutate(survey_area = factor(survey_area, levels = area_levels)) %>% 
+  filter(ind_weight_kg <= 30,
+         season == "Spring") %>% 
+  assign_log2_bins(log2_increment = 1) %>% 
+  mutate(season = season,
+         decade = str_c(floor_decade(est_year), "'s")) %>% 
+  ggplot(aes(
+    x = ind_weight_g, weight = numlen_adj/bin_width)) + 
+  geom_histogram(
+    aes(fill = after_stat(density)),
+    breaks = 2^seq(0,16,1), color = "gray90", linewidth = 0.2) +
+  scale_y_continuous(
+    transform = transform_log(base = 2),
+    labels = label_log(base = 2),
+    expand = expansion(add = c(0,0))) +
+  scale_x_continuous(
+    transform = transform_log(base = 2),
+    labels = label_log(base = 2),
+    breaks = 2^seq(0,16, 2),
+    limits = c(1, 2^14),
+    expand = expansion(add = c(0,0))) +
+  scale_fill_distiller(palette = "YlGnBu", direction = 1) +
+  scale_color_gmri() +
+  #facet_nested(decade~survey_area*fct_rev(season)) +
+  facet_nested(survey_area*fct_rev(season)~decade) +
+  theme(
+    axis.text.y = element_blank(), 
+    panel.grid.major.y = element_blank(), 
+    legend.position = "bottom") +
+  labs(
+    title = "Normalized Biomass Spectra",
+    x = "Mass (g)",
+    y = "Density",
+    fill = "Normalized Abundance Density\n(abundance / bin-width)")
+
+```
+
+### Fall
+
+```{r}
+#| label: binned method gghack fall
+#| eval: true
+
+# We need to normalize to be comparable to the Edwards method
+# Might be able to just assign the bins and their widths, then divide the weights by that
+# ^ seems to work!
+
+# add the spectra slope values from MLE method as a side value, could use facet grid label
+
+# plot the normalized
+wigley_in %>% 
+  mutate(survey_area = factor(survey_area, levels = area_levels)) %>% 
+  filter(ind_weight_kg <= 30,
+         season == "Fall") %>% 
+  assign_log2_bins(log2_increment = 1) %>% 
+  mutate(season = season,
+         decade = str_c(floor_decade(est_year), "'s")) %>% 
+  ggplot(aes(
+    x = ind_weight_g, weight = numlen_adj/bin_width)) + 
+  geom_histogram(
+    aes(fill = after_stat(density)),
+    breaks = 2^seq(0,16,1), color = "gray90", linewidth = 0.2) +
+  scale_y_continuous(
+    transform = transform_log(base = 2),
+    labels = label_log(base = 2),
+    expand = expansion(add = c(0,0))) +
+  scale_x_continuous(
+    transform = transform_log(base = 2),
+    labels = label_log(base = 2),
+    breaks = 2^seq(0,16, 2),
+    limits = c(1, 2^14),
+    expand = expansion(add = c(0,0))) +
+  scale_fill_distiller(palette = "YlGnBu", direction = 1) +
+  scale_color_gmri() +
+  #facet_nested(decade~survey_area*fct_rev(season)) +
+  facet_nested(survey_area*fct_rev(season)~decade) +
+  theme(
+    axis.text.y = element_blank(), 
+    panel.grid.major.y = element_blank(), 
+    legend.position = "bottom") +
+  labs(
+    title = "Normalized Biomass Spectra",
+    x = "Mass (g)",
+    y = "Density",
+    fill = "Normalized Abundance Density\n(abundance / bin-width)")
+
+```
+
+### Spring & Fall
 
 ```{r}
 #| label: binned method gghack
@@ -1313,7 +1506,9 @@ wigley_in %>%
 
 
 
-## E. Groundfish Complex Spectra
+:::
+
+## E. Groundfish Complex Species
 
 I had the thought that it may be easier to identify the sensitivity to fisheries impacts by estimating spectra for a subset of species that make up the groundfish complex.
 
@@ -1321,55 +1516,35 @@ These are the species in question:
 
 The 20 large-mesh stocks are:
 
- • Targeted Stocks: 
+ **Targeted Stocks:**
  
- Gulf of Maine cod; 
- Georges Bank cod; 
- Gulf of Maine haddock; 
- Georges Bank haddock; 
- Georges Bank yellowtail flounder; 
- Southern New England/Mid-Atlantic yellowtail flounder; 
- Cape Cod/Gulf of Maine yellowtail flounder; 
- pollock; 
- American plaice; 
- witch flounder; 
- white hake; 
- Georges Bank winter flounder; 
- Gulf of Maine winter flounder; 
- Southern New England/Mid-Atlantic winter flounder; 
- redfish; and 
- Atlantic halibut.
+ 1. Gulf of Maine cod      
+ 2. Georges Bank cod   
+ 3. Gulf of Maine haddock    
+ 4. Georges Bank haddock    
+ 5. Georges Bank yellowtail flounder    
+ 6. Southern New England/Mid-Atlantic yellowtail flounder    
+ 7. Cape Cod/Gulf of Maine yellowtail flounder    
+ 8. pollock   
+ 9. American plaice   
+ 10. witch flounder   
+ 11. white hake   
+ 12. Georges Bank winter flounder   
+ 13. Gulf of Maine winter flounder   
+ 14. Southern New England/Mid-Atlantic winter flounder   
+ 15. redfish   
+ 16. Atlantic halibut   
  
-• Non-Targeted Stocks: 
-Gulf of Maine/Georges Bank (northern) windowpane flounder; 
-Southern New England/Mid-Atlantic (southern) windowpane flounder; 
-ocean pout; and 
-Atlantic wolffish.
+**Non-Targeted Stocks:**
+
+ 17. Gulf of Maine/Georges Bank (northern) windowpane flounder   
+ 18. Southern New England/Mid-Atlantic (southern) windowpane flounder   
+ 19. ocean pout    
+ 20. Atlantic wolffish   
 
 ```{r}
-#| eval: true
+#| eval: false
 #| label: calculate groundfish complex spectra
-
-
-targeted_species <- c(
-  "atlantic cod",
-  "haddock",
-  "american plaice",
-  "white hake",
-  "witch flounder",
-  "winter flounder",
-  "yellowtail flounder",
-  "pollock",
-  "acadian redfish",
-  "atlantic halibut",
-  "windowpane flounder",
-  "ocean pout",
-  "atlantic wolffish"
-  )
-
-
-gfish_comp <- filter(wigley_in, comname %in% targeted_species)
-
 
 # # # Run MAB with and without spiny dogfish
 # # # Run the year, season, area fits for the filtered data
@@ -1392,12 +1567,16 @@ gfish_comp <- filter(wigley_in, comname %in% targeted_species)
 #   here::here("Data/processed/groundfish_complex_bmspectra.csv"))
 ```
 
+::: panel-tabset
 
-### Groundfish Complex Trends
 
-A couple surprises here (good and bad). I was anticipating that these would show a more clear period of change in Northern regions when fisheries for these species were crashing. I am surprised that this is not really the case.
+### Groundfish Trends
 
-On the good surprise side, I also anticipated these to show a less powerful seasonal difference. These species are more bottom-associated and likely to have more consistent catchability from a trawl survey. Seeing a much tighter grouping between the seasons AND seeing a semblance of temporal autocorrelation give me a sense that we are following a community through time, and not catching random noise based on what is in the area that time of year and may not be there next year.
+A couple surprises here. 
+
+I was anticipating that these would show a more clear period of change in Northern regions when fisheries for these species were crashing. I am surprised that this is not really the case.
+
+I also anticipated these to show a less powerful seasonal difference. These species are more bottom-associated and likely to have more consistent catchability from a trawl survey. Seeing a much tighter grouping between the seasons AND seeing a semblance of temporal autocorrelation give me a sense that we are following a community through time, and not catching random noise based on what is in the area that time of year and may not be there next year.
 
 
 
@@ -1427,7 +1606,7 @@ gfish_mod <- lmer(
   data = gf_bmspectra)
 # check_model(gfish_mod)
 
-
+#  Model for wigley species
 bmspectra_mod_wig <- lmer(
   formula = b ~ scale(est_year) * survey_area * season + (1|est_year),
   data = wigley_bmspectra)
@@ -1469,7 +1648,7 @@ ggplot() +
 ```
 
 
-### Groundfish Comoplex Large/Small Fish Indices
+### Groundfish LFI
 
 For this section I'm going to do something a little different to dial in to species specific body size changes. 
 
@@ -1499,18 +1678,18 @@ species_size_quants <- gfish_comp %>%
 
 
 
-# Show the table
-species_size_quants %>% 
-  mutate_if(is.numeric, round, 2) %>% 
-  gt() %>% 
-  tab_header(title = "Groundfish Complex - Body Mass Quantiles (kg)") %>% tab_spanner(label = "Percentile", columns = -survey_area) %>% 
-  cols_label("survey_area" = "")
+# # Show the table
+# species_size_quants %>% 
+#   mutate_if(is.numeric, round, 2) %>% 
+#   gt() %>% 
+#   tab_header(title = "Groundfish Complex - Body Mass Quantiles (kg)") %>% tab_spanner(label = "Percentile", columns = -survey_area) %>% 
+#   cols_label("survey_area" = "")
 
 
 
 # Assign large/small
 gfish_comp <- gfish_comp %>% 
-  left_join(select(species_size_quants, `10%`, `90%`)) %>%   
+  left_join(select(species_size_quants, comname, `10%`, `90%`)) %>%   
   mutate(
     small = ifelse(ind_weight_kg < `10%`, T, F),
     large = ifelse(ind_weight_kg > `90%`, T, F))
@@ -1556,7 +1735,7 @@ lfi <- left_join(total_abundbio, lf_abundbio) %>%
 
 
 ```{r}
-#| label: plot gf lfi as percent
+#| label: plot gf lfi
 
 # Plot them as loing-term average
 
@@ -1577,7 +1756,8 @@ sfi_p <- lfi %>%
   labs(
     x = "Year",
     y = "Percent of Total Abundance",
-    title = "Groundfish Complex\nSmall Fish Index\n(<10 Percentile Species-Mass\nDistribution)",
+    title = "Groundfish Complex",
+    subtitle = "Small Fish Index\n(<10 Percentile\nSpecies-Mass Distribution)",
     fill = "Season",
     color = "Season",
     linetype = "")
@@ -1598,7 +1778,7 @@ lfi_p <- ggplot(lfi) +
   labs(
     x = "Year",
     y = "",
-    title = "Groundfish Complex\nLarge Fish Index\n(>90 Percentile Species-Mass\nDistribution)",
+    subtitle = "Large Fish Index\n(>90 Percentile\nSpecies-Mass Distribution)",
     fill = "Season",
     color = "Season",
     linetype = "")
@@ -1611,8 +1791,8 @@ lfi_p <- ggplot(lfi) +
 ```
 
 
-
 :::
+
 
 # Summary of Trends
 
@@ -1678,7 +1858,7 @@ Plotted below are the long-term seasonal changes. Significant seasonal trends ar
 
 # Model linear trends in time
 btemp_mods <- lmer(
-  formula = bot_temp ~ est_year * survey_area * season + (1|est_year),
+  formula = bot_temp ~ scale(est_year) * survey_area * season + (1|est_year),
   data = wigley_bmspectra_model_df)
 
 
@@ -1811,7 +1991,7 @@ wigley_b_dist_plot <- wigley_bmspectra_model_df %>%
   labs(
     y = "Exponent of Size Distribution", 
     x = "",
-    title = "Body-Mass Distributions",
+    title = "Mass Distributions",
     subtitle = "Bodymass Ranges (min: 1g, max: max observed)")
 
 
@@ -1824,9 +2004,7 @@ wigley_b_dist_plot <- wigley_bmspectra_model_df %>%
 
 ### Seasonal Catchability Differences
 
-Bottom temperature relationships emerge at the seasonal time-scale. 
-
-The extent that size distribution within each region follows a linear relationship to temperature is largely a reflection in the seasonal change in the size spectra. 
+The extent that the shape of the size distribution within each region follows a linear relationship to temperature largely is a reflection of the seasonal differences. 
 
 If we follow the relationship within a specific season, the relationship is much weaker.
 
@@ -1848,15 +2026,19 @@ wigley_bmspectra_model_df %>%
 # Temperature Sentiment
 
 
-This leads me to believe that the size distribution along the shelf is responding on shorter time scales, adjusting on the fly to the ambient water temperatures and aligning well with seasonal temperature swings. 
+I believe that the size distribution along the shelf is responsive on shorter time scales to temperature changes than hypotheses that predict temperature related changes in growth. This is the seasonal variability in spectra we see.
 
-This would suggest that as a whole the community may be less sensistive to long-term trends in temperature since the distribution is able to effectively track swings in temperature that happen within the year.
+This suggests to me that the community size distribution is likely less sensistive to long-term trends in temperature since the distribution is able to effectively track swings in temperature that happen within the year.
 
-I think there is an important question about temperature's role, but I don't think that local warming is having much impact on the community size distribution. If it is, it is secondary to other size distribution shifts happening at shorter time scales and across spatial scales.
+I think there is an important question about temperature's role, but I don't think that local warming is having much impact on the community size distribution. 
 
-This then raises the questions of how seasonal size distribution changes are being accomplished. From the decadal variability work we have reason to believe that individual species are both not tracking temperature changes in space at the rate they are ocurring AND that changes in size at age are happening, signals at the species level that temperature effects on growth are ocurring. There would need to be some compensatory mechanisms present to offset this across the broader community.
+If it is, it is secondary to other size distribution shifts happening at shorter time scales and across spatial scales.
 
+This raises questions about how seasonal size distribution changes are being achieved. 
 
+From the decadal variability work we have reason to believe that individual species are both not tracking temperature changes in space at the rate they are ocurring AND that changes in size at age are happening. These are signals at the species level indicating that temperature effects on growth are ocurring. 
+
+There would need to be some compensatory mechanisms present to offset this across the broader community.
 
 
 
