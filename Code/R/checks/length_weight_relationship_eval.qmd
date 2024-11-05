@@ -186,19 +186,30 @@ ggplot() +
 
 ```{r}
 
+hist(wigley_in$ind_weight_kg, breaks = 100)
+
+
+
+
 
 # Get the total weights for each station, then do it each year for every species
 mismatch_ranks <- function(x){
+  
+  # Sum across body sizes to get length weight totals
+  # we want to lump together across sex because its unclear if biomass column is consistently sex specific
   species_summaries <- x %>% 
-    group_by(est_towdate, est_year, comname, id, season, catchsex) %>% 
+    group_by(est_towdate, est_year, comname, id, season) %>% 
     summarise(
       number_caught = sum(numlen_adj, na.rm = T),
       length_weight_biomass = sum(sum_weight_kg, na.rm = T),
       .groups = "drop") 
   
+  # sum across distinct abundance and biomass totals to get tow summaries
+  # use distinct abundance and biomass to catch if there is a sex distinction,
+  # but still total to match above
   tow_totals <- x %>% 
-    distinct(est_towdate, est_year, season, station, id,  comname, catchsex, abundance, biomass_kg) %>% 
-    group_by(est_towdate, est_year, comname, id, season, catchsex) %>% 
+    distinct(est_towdate, est_year, season, station, id,  comname, abundance, biomass_kg) %>% 
+    group_by(est_towdate, est_year, comname, id, season) %>% 
     summarise(
       ship_measured_biomass = sum(biomass_kg, na.rm = T),
       .groups = "drop") 
@@ -224,8 +235,12 @@ mismatch_ranks <- function(x){
 
 
 
+
+
+
 # Plot flags top and bottom 15 species that don't match well with survdat$biomass
 mismatch_plot <- function(x, outlierz = T){
+  
   # All ranks in one panel
   all_ranks <- x %>% 
     ggplot(aes(lw_bias, species_rank)) +
@@ -280,6 +295,8 @@ mismatch_plot <- function(x, outlierz = T){
 }
 ```
 
+
+
 ```{r}
 #| fig-height: 10
 #| fig-width: 8
@@ -291,7 +308,7 @@ wigley_ranks <- wigley_in %>%
 
 # Wigley mismatch plot
 wigley_ranks %>% 
-  mismatch_plot(outlierz = T)
+  mismatch_plot(outlierz = F)
 
 
 ```
@@ -302,13 +319,7 @@ wigley_ranks %>%
 
 df_outliers <- check_outliers(wigley_ranks %>% filter(comname == "spiny dogfish") %>% pull(lw_bias)) %>% as.data.frame()
 
-bind_cols(filter(wigley_ranks, comname == "spiny dogfish"), df_outliers) %>% 
-  ggplot(aes(est_year)) +
-    geom_point(
-      aes(y = lw_bias, 
-      color = factor(catchsex),
-      shape = factor(Outlier))) +
-  facet_wrap(~season, nrow = 2)
+# bind_cols(filter(wigley_ranks, comname == "spiny dogfish"), df_outliers) 
 
 # How many are outliers?
 sum(df_outliers$Outlier)/nrow(df_outliers)*100
@@ -316,24 +327,6 @@ sum(df_outliers$Outlier)/nrow(df_outliers)*100
 
 ```
 
-
-### Are Dogfish Biases Sex or Season Specific
-
-
-```{r}
-
-
-
-
-# Just Wigley
-wigley_ranks <- wigley_in %>% 
-  mismatch_ranks() 
-
-# Wigley mismatch plot
-wigley_ranks %>% 
-  mismatch_plot(outlierz = F)
-
-```
 
 
 ### Body Size Percentile Exploration
