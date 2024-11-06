@@ -332,6 +332,68 @@ Using the groundfish complex seems safe in the sense that those species are all 
 Using the whole finfish community has me feeling enigmatic whether I'm looking at a community resilient to disturbance, or just noise stemming from inclusion of poorly/inconsistently sampled species.
 
 
+### The Groundfish Complex Species
+
+I had the thought that it may be easier to identify the sensitivity to fisheries impacts by estimating spectra for a subset of species that make up the groundfish complex.
+
+These are the species in question:
+
+The 20 large-mesh stocks are:
+
+ **Targeted Stocks:**
+ 
+ 1. Gulf of Maine cod      
+ 2. Georges Bank cod   
+ 3. Gulf of Maine haddock    
+ 4. Georges Bank haddock    
+ 5. Georges Bank yellowtail flounder    
+ 6. Southern New England/Mid-Atlantic yellowtail flounder    
+ 7. Cape Cod/Gulf of Maine yellowtail flounder    
+ 8. pollock   
+ 9. American plaice   
+ 10. witch flounder   
+ 11. white hake   
+ 12. Georges Bank winter flounder   
+ 13. Gulf of Maine winter flounder   
+ 14. Southern New England/Mid-Atlantic winter flounder   
+ 15. redfish   
+ 16. Atlantic halibut   
+ 
+**Non-Targeted Stocks:**
+
+ 17. Gulf of Maine/Georges Bank (northern) windowpane flounder   
+ 18. Southern New England/Mid-Atlantic (southern) windowpane flounder   
+ 19. ocean pout    
+ 20. Atlantic wolffish   
+
+```{r}
+#| eval: false
+#| label: calculate groundfish complex spectra
+
+# # # Run MAB with and without spiny dogfish
+# # # Run the year, season, area fits for the filtered data
+# gf_bmspectra <- group_binspecies_spectra(
+#   ss_input = gfish_comp,
+#   grouping_vars = c("est_year", "season", "survey_area"),
+#   abundance_vals = "numlen_adj",
+#   length_vals = "length_cm",
+#   use_weight = TRUE,
+#   isd_xmin = 1,
+#   global_min = TRUE,
+#   isd_xmax = NULL,
+#   global_max = FALSE,
+#   bin_width = 1,
+#   vdiff = 2)
+
+# # Save those
+# write_csv(
+#   gf_bmspectra,
+#   here::here("Data/processed/groundfish_complex_bmspectra.csv"))
+```
+
+
+
+
 ## A. Size Spectra Trends
 
 For the figures in part 1: non-zero trends over time have been highlighted in the appropriate plot panels with linear trends overlaid.
@@ -550,6 +612,85 @@ lenspectra_trend_p
   bmspectra_trend_p)
   ) + plot_layout(guides = "collect")
 ```
+
+### Groundfish Complex Spectra
+
+
+A couple surprises here. 
+
+I was anticipating that these would show a more clear period of change in Northern regions when fisheries for these species were crashing. I am surprised that this is not really the case.
+
+I also anticipated these to show a less powerful seasonal difference. These species are more bottom-associated and likely to have more consistent catchability from a trawl survey. Seeing a much tighter grouping between the seasons AND seeing a semblance of temporal autocorrelation give me a sense that we are following a community through time, and not catching random noise based on what is in the area that time of year and may not be there next year.
+
+(details on the species below)
+
+```{r}
+#| eval: true
+
+# Read them in, do some plotting
+gf_bmspectra <- read_csv(
+  here::here("Data/processed/groundfish_complex_bmspectra.csv")) %>% 
+  mutate(survey_area = factor(survey_area, levels = area_levels)) %>% 
+  mutate(est_year = as.numeric(est_year))
+
+
+# Join them together
+gf_results <- bind_rows(
+   list(
+     "Wigley Full" = wigley_bmspectra,
+     "Groundfish Complex" =  gf_bmspectra), 
+   .id = "community") %>% 
+  mutate(metric = "bodymass_spectra",
+         survey_area = fct_relevel(survey_area, area_levels))
+
+
+# Get trends for groundfish complex
+gfish_mod <- lmer(
+  formula = b ~ scale(est_year) * survey_area * season + (1|est_year),
+  data = gf_bmspectra)
+# check_model(gfish_mod)
+
+#  Model for wigley species
+bmspectra_mod_wig <- lmer(
+  formula = b ~ scale(est_year) * survey_area * season + (1|est_year),
+  data = wigley_bmspectra)
+
+# Put predictions
+gf_sens_predictions <- bind_rows(list(
+  "bodymass_spectra-Wigley Full" = get_preds_and_trendsignif(bmspectra_mod_wig),
+  "bodymass_spectra-Groundfish Complex" = get_preds_and_trendsignif(gfish_mod)), 
+  .id = "model_id") %>% 
+  separate(model_id, into = c("metric", "community"), sep = "-") %>% 
+  mutate(metric = fct_rev(metric))
+
+
+
+# Plot the differences
+ggplot() +
+  geom_ribbon(
+    data = filter(gf_sens_predictions, non_zero == TRUE),
+    aes(x, ymin = conf.low, ymax = conf.high, fill = season),
+    linewidth = 1, alpha = 0.35) +
+  geom_point(
+    data = gf_results,
+    aes(est_year, b, color = season),
+    size = 0.8) +
+  geom_line(
+    data = filter(gf_sens_predictions, non_zero == TRUE),
+    aes(x, predicted, color = season),
+    linewidth = 1) +
+  scale_fill_gmri() +
+  scale_color_gmri() +
+  facet_grid(survey_area ~ metric*community, scales = "free") +
+  labs(
+    x = "Year",
+    y = "Exponent of Size Spectra",
+    title = "Comparing Wigley Community to Groundfish Complex",
+    subtitle = "Spring = Dogfish in MAB, Fall = Dogfish in GB")
+
+
+```
+
 
 
 :::
@@ -927,6 +1068,7 @@ The following table shows what the bodymass percentiles are for each region **fo
 
 ```{r}
 #| label: wigley weighted percentiles
+#| eval: true
 
 # # Get 90th or 95th percentile as size threshold
 # Do them separately
@@ -961,6 +1103,7 @@ Then this figure shows what the LFI and SFI indices are using those same overall
 
 ```{r}
 #| label: wigley lfi plots
+#| eval: true
 
 # Assign large/small
 wigley_in <- wigley_in %>% 
@@ -989,9 +1132,7 @@ lf_abundbio <- bind_rows(
   group_by(survey_area, est_year, season) %>% 
   summarise(
     small_abund = sum(numlen_adj * small),
-    small_bio = sum(sum_weight_kg * small),
     large_abund = sum(numlen_adj * large),
-    large_bio = sum(sum_weight_kg * large),
     .groups = "drop")
 
 
@@ -1007,27 +1148,6 @@ lfi <- left_join(total_abundbio, lf_abundbio) %>%
     mutate(across(-survey_area, \(x) str_c(round(x, 2), " kg")))) %>% 
   mutate(season = factor(season, levels = c("Spring", "Fall")))
 
-
-# #plot it
-# lfi %>%
-#   pivot_longer(cols = c(LFI, SFI), names_to = "Index", values_to = "val") %>%
-#   mutate(size_thresh = if_else(Index == "LFI", ">90th Percentile", "<10th Percentile")) %>%
-#   ggplot(aes(est_year, val, color = season)) +
-#   geom_point(
-#     aes(est_year, val, color = season),
-#     size = 0.8, alpha = 0.5) +
-#   geom_ma(
-#     aes(est_year, val, color = season, linetype = "5-Year Moving Average"), 
-#     n = 5, ma_fun = SMA) +
-#   scale_fill_gmri() +
-#   scale_color_gmri() +
-#   scale_y_continuous(labels = label_percent()) +
-#   facet_nested(survey_area~fct_rev(Index), scales = "free_y") +
-#   labs(
-#     x = "Year",
-#     y = "Percent of Overall Abundance",
-#     title = "Wigley species, Large and Small Fish Indices, by Weight")
-
 ```
 
 
@@ -1038,7 +1158,6 @@ lfi <- left_join(total_abundbio, lf_abundbio) %>%
 
 
 # Plot them as loing-term average
-
 # Plot the SFI
 sfi_p <- lfi %>% 
   ggplot() +
@@ -1094,6 +1213,7 @@ Using these broad group quantiles, we have the following species are represented
 
 
 ```{r}
+
 big_fishes <- wigley_in %>% 
   filter(large) %>% 
   distinct(comname) %>% 
@@ -1113,11 +1233,9 @@ There's really just so few "large" individuals that the percentiles sit quite sm
 
 
 
-
-
 ### Wigley Species-Specific LFI
 
-Using species-specific quantiles shifts the story somewhat:
+Using species-specific size distribution quantiles shifts the story very little: so little that I feel like its bugged, but I can't track down where
 
 ```{r}
 
@@ -1158,6 +1276,7 @@ The following figure shows changes in seasonal large and small fish indices with
 ```{r}
 # Assign large/small indicators
 wigley_lfi <- wigley_in %>% 
+  select(-small, -large) %>% 
   left_join(select(species_size_quants, comname, `10%`, `90%`)) %>%   
   mutate(
     small = ifelse(ind_weight_kg < `10%`, T, F),
@@ -1257,6 +1376,150 @@ lfi_p <- ggplot(lfi) +
 (sfi_p | lfi_p) + plot_layout(guides = "collect")
 
 ```
+
+
+### Groundfish Complex LFI
+
+For this section I'm going to do something a little different to dial in to species specific body size changes. 
+
+For the groundfish complex species, across all individuals estimate weight percentiles, and use those to get a LFI and SFI for those species
+
+```{r}
+
+# # Get 90th or 95th percentile as size threshold
+# Do them separately
+species_size_quants <- gfish_comp %>% 
+  mutate(survey_area = "Northeast Shelf") %>% 
+  unite("species_area", c(survey_area, comname), sep = "X", ) %>% 
+  split(.$species_area) %>% 
+  map_dfr(function(x,y){
+    
+    DescTools::Quantile(
+      # x$length_cm, 
+      x$ind_weight_kg,
+      weights = x$numlen_adj, 
+      probs = c(0.05, 0.1, 0.5, 0.90, .95)) %>% 
+      t() %>% 
+      as_tibble() 
+  }, .id = "species_area") %>% 
+  separate(col = species_area, into = c("survey_area", "comname"), sep = "X") %>% 
+  mutate(survey_area = factor(survey_area, levels = area_levels_all)) %>% 
+  arrange(survey_area)
+
+
+
+# # Show the table
+# species_size_quants %>% 
+#   mutate_if(is.numeric, round, 2) %>% 
+#   gt() %>% 
+#   tab_header(title = "Groundfish Complex - Body Mass Quantiles (kg)") %>% tab_spanner(label = "Percentile", columns = -survey_area) %>% 
+#   cols_label("survey_area" = "")
+
+
+
+# Assign large/small
+gfish_comp <- gfish_comp %>% 
+  left_join(select(species_size_quants, comname, `10%`, `90%`)) %>%   
+  mutate(
+    small = ifelse(ind_weight_kg < `10%`, T, F),
+    large = ifelse(ind_weight_kg > `90%`, T, F))
+
+
+
+# Get total abundance
+total_abundbio <- bind_rows(
+    mutate(gfish_comp, survey_area = "Northeast Shelf"),
+    gfish_comp) %>% 
+  group_by(survey_area, est_year, season) %>% 
+  summarise(
+    total_abund = sum(numlen_adj),
+    total_bio = sum(sum_weight_kg),
+    .groups = "drop")
+  
+  
+# Get large fish bio
+lf_abundbio <- bind_rows(
+    mutate(gfish_comp, survey_area = "Northeast Shelf"),
+    gfish_comp) %>% 
+  group_by(survey_area, est_year, season) %>% 
+  summarise(
+    small_abund = sum(numlen_adj * small),
+    small_bio = sum(sum_weight_kg * small),
+    large_abund = sum(numlen_adj * large),
+    large_bio = sum(sum_weight_kg * large),
+    .groups = "drop")
+
+# Join and divide
+lfi <- left_join(total_abundbio, lf_abundbio) %>% 
+  mutate(
+    LFI = large_abund / total_abund,
+    SFI = small_abund / total_abund)  %>% 
+  mutate(
+    survey_area = factor(survey_area, levels = area_levels_all),
+    season = factor(season, levels = c("Spring", "Fall"))) %>% 
+  left_join(
+    select(area_size_quants, survey_area, `10%`, `90%`) %>% 
+      mutate(across(-survey_area, \(x) str_c(round(x, 2), " kg"))))
+
+```
+
+
+```{r}
+#| label: plot gf lfi
+
+# Plot them as loing-term average
+
+# Plot the SFI
+sfi_p <- lfi %>% 
+  ggplot() +
+  geom_point(
+    aes(est_year, SFI, color = season),
+    size = 0.8, alpha = 0.5) +
+  geom_ma(
+    aes(est_year, SFI, color = season, linetype = "5-Year Moving Average"), 
+    n = 5, ma_fun = SMA) +
+  scale_fill_gmri() +
+  scale_color_gmri() +
+  scale_y_continuous(labels = label_percent()) +
+  theme(strip.text.y = element_blank()) +
+  facet_grid(survey_area~., scales = "free") +
+  labs(
+    x = "Year",
+    y = "Percent of Total Abundance",
+    title = "Groundfish Complex",
+    subtitle = "Small Fish Index\n(<10 Percentile\nSpecies-Mass Distribution)",
+    fill = "Season",
+    color = "Season",
+    linetype = "")
+
+
+# Plot the LFI
+lfi_p <- ggplot(lfi) +
+  geom_point(
+    aes(est_year, LFI, color = season),
+    size = 0.8, alpha = 0.5) +
+  geom_ma(
+    aes(est_year, LFI, color = season, linetype = "5-Year Moving Average"), 
+    n = 5, ma_fun = SMA) +
+  scale_fill_gmri() +
+  scale_color_gmri() +
+  scale_y_continuous(labels = label_percent()) +
+  facet_grid(survey_area~., scales = "free") +
+  labs(
+    x = "Year",
+    y = "",
+    subtitle = "Large Fish Index\n(>90 Percentile\nSpecies-Mass Distribution)",
+    fill = "Season",
+    color = "Season",
+    linetype = "")
+
+
+
+# Plot together
+(sfi_p | lfi_p) + plot_layout(guides = "collect")
+
+```
+
 
 ### Shift in Regional Percentile Size
 
@@ -1508,290 +1771,7 @@ wigley_in %>%
 
 :::
 
-## E. Groundfish Complex Species
 
-I had the thought that it may be easier to identify the sensitivity to fisheries impacts by estimating spectra for a subset of species that make up the groundfish complex.
-
-These are the species in question:
-
-The 20 large-mesh stocks are:
-
- **Targeted Stocks:**
- 
- 1. Gulf of Maine cod      
- 2. Georges Bank cod   
- 3. Gulf of Maine haddock    
- 4. Georges Bank haddock    
- 5. Georges Bank yellowtail flounder    
- 6. Southern New England/Mid-Atlantic yellowtail flounder    
- 7. Cape Cod/Gulf of Maine yellowtail flounder    
- 8. pollock   
- 9. American plaice   
- 10. witch flounder   
- 11. white hake   
- 12. Georges Bank winter flounder   
- 13. Gulf of Maine winter flounder   
- 14. Southern New England/Mid-Atlantic winter flounder   
- 15. redfish   
- 16. Atlantic halibut   
- 
-**Non-Targeted Stocks:**
-
- 17. Gulf of Maine/Georges Bank (northern) windowpane flounder   
- 18. Southern New England/Mid-Atlantic (southern) windowpane flounder   
- 19. ocean pout    
- 20. Atlantic wolffish   
-
-```{r}
-#| eval: false
-#| label: calculate groundfish complex spectra
-
-# # # Run MAB with and without spiny dogfish
-# # # Run the year, season, area fits for the filtered data
-# gf_bmspectra <- group_binspecies_spectra(
-#   ss_input = gfish_comp,
-#   grouping_vars = c("est_year", "season", "survey_area"),
-#   abundance_vals = "numlen_adj",
-#   length_vals = "length_cm",
-#   use_weight = TRUE,
-#   isd_xmin = 1,
-#   global_min = TRUE,
-#   isd_xmax = NULL,
-#   global_max = FALSE,
-#   bin_width = 1,
-#   vdiff = 2)
-
-# # Save those
-# write_csv(
-#   gf_bmspectra,
-#   here::here("Data/processed/groundfish_complex_bmspectra.csv"))
-```
-
-::: panel-tabset
-
-
-### Groundfish Trends
-
-A couple surprises here. 
-
-I was anticipating that these would show a more clear period of change in Northern regions when fisheries for these species were crashing. I am surprised that this is not really the case.
-
-I also anticipated these to show a less powerful seasonal difference. These species are more bottom-associated and likely to have more consistent catchability from a trawl survey. Seeing a much tighter grouping between the seasons AND seeing a semblance of temporal autocorrelation give me a sense that we are following a community through time, and not catching random noise based on what is in the area that time of year and may not be there next year.
-
-
-
-```{r}
-#| eval: true
-
-# Read them in, do some plotting
-gf_bmspectra <- read_csv(
-  here::here("Data/processed/groundfish_complex_bmspectra.csv")) %>% 
-  mutate(survey_area = factor(survey_area, levels = area_levels)) %>% 
-  mutate(est_year = as.numeric(est_year))
-
-
-# Join them together
-gf_results <- bind_rows(
-   list(
-     "Wigley Full" = wigley_bmspectra,
-     "Groundfish Complex" =  gf_bmspectra), 
-   .id = "community") %>% 
-  mutate(metric = "bodymass_spectra",
-         survey_area = fct_relevel(survey_area, area_levels))
-
-
-# Get trends for groundfish complex
-gfish_mod <- lmer(
-  formula = b ~ scale(est_year) * survey_area * season + (1|est_year),
-  data = gf_bmspectra)
-# check_model(gfish_mod)
-
-#  Model for wigley species
-bmspectra_mod_wig <- lmer(
-  formula = b ~ scale(est_year) * survey_area * season + (1|est_year),
-  data = wigley_bmspectra)
-
-# Put predictions
-gf_sens_predictions <- bind_rows(list(
-  "bodymass_spectra-Wigley Full" = get_preds_and_trendsignif(bmspectra_mod_wig),
-  "bodymass_spectra-Groundfish Complex" = get_preds_and_trendsignif(gfish_mod)), 
-  .id = "model_id") %>% 
-  separate(model_id, into = c("metric", "community"), sep = "-") %>% 
-  mutate(metric = fct_rev(metric))
-
-
-
-# Plot the differences
-ggplot() +
-  geom_ribbon(
-    data = filter(gf_sens_predictions, non_zero == TRUE),
-    aes(x, ymin = conf.low, ymax = conf.high, fill = season),
-    linewidth = 1, alpha = 0.35) +
-  geom_point(
-    data = gf_results,
-    aes(est_year, b, color = season),
-    size = 0.8) +
-  geom_line(
-    data = filter(gf_sens_predictions, non_zero == TRUE),
-    aes(x, predicted, color = season),
-    linewidth = 1) +
-  scale_fill_gmri() +
-  scale_color_gmri() +
-  facet_grid(survey_area ~ metric*community, scales = "free") +
-  labs(
-    x = "Year",
-    y = "Exponent of Size Spectra",
-    title = "Comparing Wigley Community to Groundfish Complex",
-    subtitle = "Spring = Dogfish in MAB, Fall = Dogfish in GB")
-
-
-```
-
-
-### Groundfish LFI
-
-For this section I'm going to do something a little different to dial in to species specific body size changes. 
-
-For the groundfish complex species, across all individuals estimate weight percentiles, and use those to get a LFI and SFI for those species
-
-```{r}
-
-# # Get 90th or 95th percentile as size threshold
-# Do them separately
-species_size_quants <- gfish_comp %>% 
-  mutate(survey_area = "Northeast Shelf") %>% 
-  unite("species_area", c(survey_area, comname), sep = "X", ) %>% 
-  split(.$species_area) %>% 
-  map_dfr(function(x,y){
-    
-    DescTools::Quantile(
-      # x$length_cm, 
-      x$ind_weight_kg,
-      weights = x$numlen_adj, 
-      probs = c(0.05, 0.1, 0.5, 0.90, .95)) %>% 
-      t() %>% 
-      as_tibble() 
-  }, .id = "species_area") %>% 
-  separate(col = species_area, into = c("survey_area", "comname"), sep = "X") %>% 
-  mutate(survey_area = factor(survey_area, levels = area_levels_all)) %>% 
-  arrange(survey_area)
-
-
-
-# # Show the table
-# species_size_quants %>% 
-#   mutate_if(is.numeric, round, 2) %>% 
-#   gt() %>% 
-#   tab_header(title = "Groundfish Complex - Body Mass Quantiles (kg)") %>% tab_spanner(label = "Percentile", columns = -survey_area) %>% 
-#   cols_label("survey_area" = "")
-
-
-
-# Assign large/small
-gfish_comp <- gfish_comp %>% 
-  left_join(select(species_size_quants, comname, `10%`, `90%`)) %>%   
-  mutate(
-    small = ifelse(ind_weight_kg < `10%`, T, F),
-    large = ifelse(ind_weight_kg > `90%`, T, F))
-
-
-
-# Get total abundance
-total_abundbio <- bind_rows(
-    mutate(gfish_comp, survey_area = "Northeast Shelf"),
-    gfish_comp) %>% 
-  group_by(survey_area, est_year, season) %>% 
-  summarise(
-    total_abund = sum(numlen_adj),
-    total_bio = sum(sum_weight_kg),
-    .groups = "drop")
-  
-  
-# Get large fish bio
-lf_abundbio <- bind_rows(
-    mutate(gfish_comp, survey_area = "Northeast Shelf"),
-    gfish_comp) %>% 
-  group_by(survey_area, est_year, season) %>% 
-  summarise(
-    small_abund = sum(numlen_adj * small),
-    small_bio = sum(sum_weight_kg * small),
-    large_abund = sum(numlen_adj * large),
-    large_bio = sum(sum_weight_kg * large),
-    .groups = "drop")
-
-# Join and divide
-lfi <- left_join(total_abundbio, lf_abundbio) %>% 
-  mutate(
-    LFI = large_abund / total_abund,
-    SFI = small_abund / total_abund)  %>% 
-  mutate(
-    survey_area = factor(survey_area, levels = area_levels_all),
-    season = factor(season, levels = c("Spring", "Fall"))) %>% 
-  left_join(
-    select(area_size_quants, survey_area, `10%`, `90%`) %>% 
-      mutate(across(-survey_area, \(x) str_c(round(x, 2), " kg"))))
-
-```
-
-
-```{r}
-#| label: plot gf lfi
-
-# Plot them as loing-term average
-
-# Plot the SFI
-sfi_p <- lfi %>% 
-  ggplot() +
-  geom_point(
-    aes(est_year, SFI, color = season),
-    size = 0.8, alpha = 0.5) +
-  geom_ma(
-    aes(est_year, SFI, color = season, linetype = "5-Year Moving Average"), 
-    n = 5, ma_fun = SMA) +
-  scale_fill_gmri() +
-  scale_color_gmri() +
-  scale_y_continuous(labels = label_percent()) +
-  theme(strip.text.y = element_blank()) +
-  facet_grid(survey_area~., scales = "free") +
-  labs(
-    x = "Year",
-    y = "Percent of Total Abundance",
-    title = "Groundfish Complex",
-    subtitle = "Small Fish Index\n(<10 Percentile\nSpecies-Mass Distribution)",
-    fill = "Season",
-    color = "Season",
-    linetype = "")
-
-
-# Plot the LFI
-lfi_p <- ggplot(lfi) +
-  geom_point(
-    aes(est_year, LFI, color = season),
-    size = 0.8, alpha = 0.5) +
-  geom_ma(
-    aes(est_year, LFI, color = season, linetype = "5-Year Moving Average"), 
-    n = 5, ma_fun = SMA) +
-  scale_fill_gmri() +
-  scale_color_gmri() +
-  scale_y_continuous(labels = label_percent()) +
-  facet_grid(survey_area~., scales = "free") +
-  labs(
-    x = "Year",
-    y = "",
-    subtitle = "Large Fish Index\n(>90 Percentile\nSpecies-Mass Distribution)",
-    fill = "Season",
-    color = "Season",
-    linetype = "")
-
-
-
-# Plot together
-(sfi_p | lfi_p) + plot_layout(guides = "collect")
-
-```
-
-
-:::
 
 
 # Summary of Trends
@@ -1849,11 +1829,9 @@ wigley_bmspectra_model_df <- wigley_bmspectra_model_df %>%
 
 Bottom temperature data is from the DuPontavice and Saba combined bottom temperature product. This data product has been clipped to the study areas and seasonally averaged to match the survey sampling seasons.
 
-Plotted below are the long-term seasonal changes. Significant seasonal trends are shown with linear trends and error displayed.
+Plotted below are the long-term trends in each area for each survey season. Significant seasonal trends are shown with linear trends and error displayed.
 
 ```{r}
-
-
 
 
 # Model linear trends in time
@@ -1920,13 +1898,17 @@ temp1 <- wigley_bmspectra_model_df %>%
 temp1 
 ```
 
-Seasonal bottom temperatures have increased overall for the Northeast Shelf. In all four regions ans shelf-wide there is a significant trend in annual averages, but seasonally spring temperatures in SNE and MAB are stable. 
+Seasonal bottom temperatures have increased in both spring and fall for the Northeast Shelf. 
+
+Looking at different areas within the region, Fall temperatures are increasing across the board, but seasonally spring temperatures in SNE and MAB are stable. 
 
 
 
-### Seasonal Bottom Temperature Distributions
+### Seasonal Bottom Temperature Ranges
 
-The Gulf of Maine experiences a much smaller difference in seasonal temperature swings than the other regions. The difference in bottom temperature from Spring to Fall can be smaller than the variability of spring bottom temperature along the whole Northeast Shelf. 
+The seasonal difference in bottom temperatures are such that the more southern regions experience a larger spring-fall difference in absolute temperatures each year. 
+
+Within the Gulf of Maine there is a notably small difference when compared against the other regions. The seasonal difference in bottom temperatures here can be smaller than the North-to-South gradient in spring bottom temperatures across the whole Northeast Shelf. 
 
 The overlap in bottom temperature distributions is very similar to the overlap in mass spectra exponents. Gulf of Maine spectra and bottom temperatures share a good region of overlap, and the regions that experience larger seasonal fluctuations in BT see larger seasonal fluctuations in their size distributions.
 
@@ -1958,6 +1940,7 @@ seasonal_temp_dist <- wigley_bmspectra_model_df %>%
   scale_fill_gmri() + 
   scale_y_continuous(labels = label_number(suffix = "\u00b0C")) +
   coord_flip() +
+  theme(plot.margin = margin(c(0,0,0,0))) +
   theme(legend.position = "none") +
   labs(y = "Bottom Temperature", x = "", color = "Season",
        title = "Seasonal Bot Temperature")
@@ -1988,6 +1971,7 @@ wigley_b_dist_plot <- wigley_bmspectra_model_df %>%
   scale_color_gmri() + 
   scale_fill_gmri() + 
   coord_flip() +
+  theme(plot.margin = margin(c(0,0,0,0))) +
   labs(
     y = "Exponent of Size Distribution", 
     x = "",
@@ -2002,11 +1986,11 @@ wigley_b_dist_plot <- wigley_bmspectra_model_df %>%
 
 
 
-### Seasonal Catchability Differences
+### Regional Temperature Relationship or Seasonal Catchability
 
-The extent that the shape of the size distribution within each region follows a linear relationship to temperature largely is a reflection of the seasonal differences. 
+The extent that the shape of the size distribution within each region follows some negative linear relationship to increasing temperature largely is a reflection of the seasonal differences. 
 
-If we follow the relationship within a specific season, the relationship is much weaker.
+If we follow the relationship within a specific season, the relationship is much weaker and not-significant in most cases.
 
 ```{r}
 wigley_bmspectra_model_df %>% 
@@ -2018,8 +2002,8 @@ wigley_bmspectra_model_df %>%
   scale_color_gmri() +
   scale_x_continuous(labels = label_number(suffix = deg_c)) +
   labs(
-    title = "Relationship to Bottom Temperature\nReflects Seasonal Catchability Differences",
-    subtitle = "Seasonal differences proportional to seasonal temperature range",
+    title = "Regional Temperature-Spectra Relationship\nReflects Seasonal Catchability Differences",
+    subtitle = "Seasonal differences in spectra proportional to seasonal temperature range",
     shape = "Survey Area")
 ```
 
@@ -2039,6 +2023,172 @@ This raises questions about how seasonal size distribution changes are being ach
 From the decadal variability work we have reason to believe that individual species are both not tracking temperature changes in space at the rate they are ocurring AND that changes in size at age are happening. These are signals at the species level indicating that temperature effects on growth are ocurring. 
 
 There would need to be some compensatory mechanisms present to offset this across the broader community.
+
+
+
+### Framing "Warming" Locally via Local BT Anomalies
+
+We need to avoid the conflation that a significant relationship between spectra and bottom temperature means that "warming" has altered the size spectra.
+
+There are known relationships between inter-specific and intra-specific body size across temperature ranges and across latitudinal ranges. 
+ 
+ * **Bergmann's Rule:** Warmer climates are often inhabited by smaller-bodied species
+ * **James Rule:** At an intraspecific level, populations living in warmer conditions often reach smaller maximum body sizes
+ 
+There is also metabolic theory that supports the basis for the above rules as well as seasonal redistribution related to body size and temperature.
+
+ * **Metabolic Theory of Ecology:** Metabolic theory predicts how metabolic rate, by setting the rates of resource uptake from the environment and resource allocation to survival, growth, and reproduction, controls ecological processes at all levels of organization from individuals to the biosphere.
+
+Metabolic Efficiency and Seasonal Movement: MTE suggests that metabolic rates, which are influenced by body size and temperature, are central to the ecological behavior of organisms. 
+
+Larger individuals, which naturally have lower per-unit mass metabolic rates, may move to cooler areas seasonally to optimize their metabolic function and reduce the energetic costs of thermoregulation in warmer periods.
+
+```{r}
+
+
+wigley_bmspectra_model_df %>% 
+  filter(survey_area != "Northeast Shelf") %>% 
+  ggplot(aes(bot_temp, b, color = season)) +
+  geom_point(aes(shape = survey_area)) +
+  geom_smooth(method = "lm", color = "black") +
+  scale_color_gmri() +
+  scale_x_continuous(labels = label_number(suffix = deg_c)) +
+  guides(shape = guide_legend(nrow = 2)) +
+  theme(legend.box = "vertical") +
+  labs(
+    title = "Bergmann's Rule + MTE",
+    subtitle = "Broad relationship between temperature and size distribution,\nstrengthened by seasonal temperature-related movements",
+    shape = "Survey Area",
+    color = "Season")
+
+
+```
+
+
+The observation that body size distribution broadly follows some temperature relationship is a confirmation of these broadly observed rules, but I would argue it does not convey that warming has shifted a local climate in some direction.
+
+Since we know that individuals migrate and may use the full water column or occupy different habitats seasonally, we need to treat seasonal communities separately to avoid an apples to oranges comparison of the community size distribution.
+
+Using these same season + region blocks, we can characterize the typical bottom temperature for these location and seasonal combinations using the long-term average, and quantify warming using departures from this long-term average.
+
+This also resolves a separate issue when modeling with absolute temperatures, where temperature and season*area units are colinear.
+
+### Local Bottom Temperature Anomalies Model
+
+This is the model I would suggest gets the most at "Warming" impacting regional size distributions:
+
+**Fixed effects:**
+
+ * Season
+ * Survey area
+ * Bottom temperature anomaly
+ 
+**Error structure**
+ * autocorrelative errors
+ 
+
+
+
+```{r}
+library(nlme)
+
+# # With RE (probably can be done)
+# # incompatible formulas for groups in 'random' and 'correlation'
+# temp_model_ar <- wigley_bmspectra_model_df %>% 
+#   mutate(group = str_c(survey_area, "_", season)) %>% 
+#   nlme::lme(
+#   fixed = b ~ survey_area * season * scale(bot_temp_anom), 
+#   random = ~ 1 | est_year, 
+#   correlation = corAR1(form = ~ est_year | survey_area/season), 
+#   data = .
+# ) 
+
+
+# Just drop the random effect part for now
+temp_model_ar <- nlme::gls(
+  b ~ survey_area * season * scale(bot_temp_anom), 
+  data = wigley_bmspectra_model_df, 
+  correlation = corAR1(form = ~ est_year | survey_area/season)
+)
+
+
+# # confidence intervals on phi
+# intervals(temp_model_ar)$corStruct
+
+
+# # check the model
+# check_model(temp_model_ar)
+# plot(check_collinearity(temp_model_ar))
+
+
+# Clean up the plot:
+# Plot the predictions over data
+mod2_preds <- as.data.frame(
+  ggpredict(
+    temp_model_ar, 
+    terms = ~ bot_temp_anom * survey_area * season))   %>% 
+  mutate(
+    survey_area = factor(group, levels = area_levels_long_all),
+    season = factor(facet, levels = c("Spring", "Fall")))
+
+
+
+#### Trend Posthoc  ####
+trend_df <- emtrends(
+  object = temp_model_ar,
+  ~survey_area * season,
+  var = "bot_temp_anom")
+
+
+# Drop effect fits that are non-significant  ###
+mod2_emtrend <- emtrends(
+  object = temp_model_ar,
+  specs =  ~ survey_area * season,
+  var = "bot_temp_anom") %>%
+  as_tibble() %>%
+  mutate(
+    zero = 0,
+    non_zero = if_else(between(zero, lower.CL, upper.CL), F, T))
+
+
+# Limit temperature plotting range
+actual_range <- wigley_bmspectra_model_df %>%
+  group_by(season, survey_area) %>%
+  summarise(
+    min_temp = min(bot_temp_anom)-2,
+    max_temp = max(bot_temp_anom)+2,
+    .groups = "drop")
+
+
+
+# Plot over observed data
+local_btemp_anoms <- mod2_preds %>% 
+  left_join(actual_range) %>%
+  filter((x < min_temp) == F,
+         (x > max_temp) == F) %>%
+  left_join(select(mod2_emtrend, survey_area, season, non_zero)) %>%
+  filter(non_zero) %>%
+  ggplot() +
+  geom_ribbon(aes(x, ymin = conf.low, ymax = conf.high, group = season), alpha = 0.1) +
+  geom_line(
+    aes(x, predicted, color = season), 
+    linewidth = 1) +
+  geom_point(
+    data = wigley_bmspectra_model_df,
+    aes(bot_temp_anom, b, color = season),
+    alpha = 0.4,
+    size = 1) +
+  facet_grid(survey_area~., scales = "free") +
+  scale_color_gmri() +
+  scale_x_continuous(labels = label_number(suffix = deg_c)) +
+  labs(y = "Exponent of ISD",
+       title = "Local Bottom Temperature Anomalies & area * season Relationships",
+       x = "Local Seasonal Bottom Temperature Anomaly")
+local_btemp_anoms
+
+```
+
+Based on this model I would say there is evidence of a warming effect in: GOM-Spring, GB-Spring, GB-Fall, & SNE-Fall.
 
 
 
@@ -2076,6 +2226,118 @@ bind_rows(list(
   labs(y = "Total Landings (live lb.)", x = "Year", color = "Moving Average")
 ```
 
+### Landings Autoregressive model
+
+I wanted to follow on the bottom temperature anomalies model here for landings:
+
+
+
+```{r}
+library(nlme)
+
+# # With RE (probably can be done)
+# # incompatible formulas for groups in 'random' and 'correlation'
+# temp_model_ar <- wigley_bmspectra_model_df %>% 
+#   mutate(group = str_c(survey_area, "_", season)) %>% 
+#   nlme::lme(
+#   fixed = b ~ survey_area * season * scale(bot_temp_anom), 
+#   random = ~ 1 | est_year, 
+#   correlation = corAR1(form = ~ est_year | survey_area/season), 
+#   data = .
+# ) 
+
+
+# Just drop the random effect part for now
+f_model_ar <- nlme::gls(
+  b ~ survey_area * season + survey_area * scale(log(total_weight_lb)), 
+  data = drop_na(wigley_bmspectra_model_df, total_weight_lb),
+  correlation = corAR1(form = ~ est_year | survey_area/season)
+)
+
+
+# # confidence intervals on phi
+# intervals(temp_model_ar)$corStruct
+
+
+# # check the model
+# check_model(f_model_ar)
+# plot(check_collinearity(f_model_ar))
+
+
+# Clean up the plot:
+# Plot the predictions over data
+mod2_preds <- as.data.frame(
+  ggpredict(
+    f_model_ar, 
+    terms = ~ total_weight_lb * survey_area * season))   %>% 
+  mutate(
+    survey_area = factor(group, levels = area_levels_long_all),
+    season = factor(facet, levels = c("Spring", "Fall")))
+
+
+
+#### Trend Posthoc  ####
+trend_df <- emtrends(
+  object = f_model_ar,
+  ~survey_area,
+  var = "total_weight_lb",
+  mode = "appx-satterthwaite")
+
+
+# Drop effect fits that are non-significant  ###
+mod2_emtrend <- emtrends(
+  object = f_model_ar,
+  specs =  ~ survey_area,
+  var = "total_weight_lb",
+  mode = "appx-satterthwaite") %>%
+  as_tibble() %>%
+  mutate(
+    zero = 0,
+    non_zero = if_else(between(zero, lower.CL, upper.CL), F, T))
+
+
+# Limit temperature plotting range
+actual_range <- wigley_bmspectra_model_df %>%
+  group_by(season, survey_area) %>%
+  summarise(
+    min_f = min(total_weight_lb)-2,
+    max_f = max(total_weight_lb)+2,
+    .groups = "drop")
+
+
+
+# Plot over observed data
+landings_ar_plot <- mod2_preds %>% 
+  left_join(actual_range) %>%
+  filter((x < min_f) == F,
+         (x > max_f) == F) %>%
+  left_join(select(mod2_emtrend, survey_area,non_zero)) %>%
+  filter(non_zero) %>%
+  ggplot() +
+  geom_ribbon(aes(x, ymin = conf.low, ymax = conf.high, group = season), alpha = 0.1) +
+  geom_line(
+    aes(x, predicted, color = season), 
+    linewidth = 1) +
+  geom_point(
+    data = wigley_bmspectra_model_df,
+    aes(total_weight_lb, b, color = season),
+    alpha = 0.4,
+    size = 1) +
+  facet_grid(survey_area~., scales = "free") +
+  scale_color_gmri() +
+  scale_x_log10(labels = label_log(base = 10), limits = 10^c(0,10)) +
+  labs(y = "Exponent of ISD",
+       title = "Total Landings (lb.)",
+       x = "Local Seasonal Bottom Temperature Anomaly")
+landings_ar_plot
+
+
+
+# temp model is better
+# AIC(temp_model_ar)
+# AIC(f_model_ar)
+
+```
 
 
 
@@ -2174,26 +2436,8 @@ mod2 <- lmer(
 
 ### Temperature Relationship
 
-Looking at all the data there is a strong relationship between seasonal size distribution and temperature.
 
-```{r}
-#| label: bottom temperature overall plot
-
-
-btemp_overall <- ggplot(wtb_model_df, aes(bot_temp, b)) +
-  geom_point(aes(shape = survey_area, color = season)) +
-  scale_color_gmri() +
-  geom_smooth(method = "lm", color = "black") +
-  labs(shape = "Area", color = "Season",
-       title = "Overall Temperature Relationship")
-btemp_overall
-```
-
-
-
-**But**
-
-If we use yearly region * season combinations as our units of comparison the relationship between seasonal bottom temperature and the size distribution falls apart.
+If we follow yearly region * season combinations as our units of comparison the relationship between seasonal bottom temperature and the size distribution falls apart.
 
 
 

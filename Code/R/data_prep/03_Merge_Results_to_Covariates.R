@@ -79,7 +79,7 @@ bot_temps <- read_csv(here::here("Data/processed", "trawl_region_seasonal_bottom
   rename(area = survey_area,
          est_year = year) %>% 
   left_join(area_df) %>% 
-  select(survey_area, area_titles, est_year, season, bot_temp)
+  select(survey_area, area_titles, est_year, season, bot_temp, overall_avg_btemp, bot_temp_anom)
 
 
 

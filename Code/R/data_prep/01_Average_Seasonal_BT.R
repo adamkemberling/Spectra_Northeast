@@ -1,4 +1,5 @@
 ####  Seasonal Bottom temperature Differences
+#### Seasonal Bottom Temperature Anomalies
 
 
 ####  Packages  ####
@@ -82,5 +83,25 @@ bt_monthly %>%
 
 
 
-#### Saving Seasonal Bottom Temperature  ####
-write_csv(seasonal_bt, here::here("Data/processed", "trawl_region_seasonal_bottom_temps.csv"))
+####  Seasonal BT Anomalies  ####
+
+# Don't pick a climatology, just do all years
+bt_seas_clim <- seasonal_bt %>% 
+  group_by(survey_area, season) %>% 
+  summarise(overall_avg_btemp = mean(bot_temp),
+            .groups = "drop") %>% 
+  right_join(seasonal_bt) %>% 
+  mutate(bot_temp_anom = bot_temp - overall_avg_btemp)
+
+
+
+
+# #### Saving Seasonal Bottom Temperature  ####
+write_csv(bt_seas_clim, here::here("Data/processed", "trawl_region_seasonal_bottom_temps.csv"))
+
+
+
+
+
+
+
