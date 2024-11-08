@@ -52,6 +52,7 @@ theme_set(
     rect = element_rect(fill = "white", color = NA), 
     strip.text.y = element_text(angle  = 0),
     axis.text.x = element_text(size = 8),
+    axis.text.y = element_text(size = 8),
     legend.position = "bottom"))
 
 
@@ -853,6 +854,239 @@ There are a number of years when median weight surges in MAB. For these situatio
 We also don't see a shelf-wide decline in size so I might need to check what Friedland did or prepare for a confrontation.
 
 
+### Shift in Size Percentiles & Spiny Dogfish
+
+A 90th percentile fish is smaller than I feel it has been in the past, so I wanted to plot those quantiles over time.
+
+Indeed, the 90th & 95th percentile size for fishes in the GOM was nearly 2x what it is today. 10th percentile weights seem stable. 90th percentile body-weights have fluctuated over time. Seems more probably that the size distribution changes are related to fluctuations in adult.
+
+
+What do we see in the MAB without the main actor? By excluding spiny dogfish from the community the 2000's era increase in 90th percentile size for the Gulf of Maine goes away.
+
+
+```{r}
+#| label: weight percentiles
+
+# Do them separately
+yearly_size_quants <- bind_rows(
+    mutate(wigley_in, survey_area = "Northeast Shelf"),
+    wigley_in) %>% 
+  unite(col = "group_var", survey_area, est_year, sep = "X", remove = T) %>% 
+  split(.$group_var) %>% 
+  map_dfr(function(x,y){
+    
+    DescTools::Quantile(
+      # x$length_cm, 
+      x$ind_weight_kg,
+      weights = x$numlen_adj, 
+      probs = c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.90, .95)) %>% 
+      t() %>% 
+      as_tibble() 
+  }, .id = "group_var") %>% 
+  separate(group_var, into = c("survey_area", "est_year"), sep = "X") %>% 
+  mutate(
+    est_year = as.numeric(est_year),
+    survey_area = factor(survey_area, levels = area_levels_all)) %>% 
+  arrange(survey_area)
+
+
+# Reshape to make filtering easier
+quants_long <- yearly_size_quants %>% 
+  pivot_longer(
+    cols = -c(survey_area, est_year), 
+    names_to = "Percentile", 
+    values_to = "biomass_kg") 
+
+
+#-------------
+
+# Take the data excluding dogfish
+no_spiny <- filter(wigley_in, comname != "spiny dogfish")
+
+# Do them separately
+spineless_size_quants <- bind_rows(
+    mutate(no_spiny, survey_area = "Northeast Shelf"),
+    no_spiny) %>% 
+  unite(col = "group_var", survey_area, est_year, sep = "X", remove = T) %>% 
+  split(.$group_var) %>% 
+  map_dfr(function(x,y){
+    
+    DescTools::Quantile(
+      x$ind_weight_kg,
+      weights = x$numlen_adj, 
+      probs = c(0.1,  0.5, 0.90)) %>% 
+      t() %>% 
+      as_tibble() 
+    
+  }, .id = "group_var") %>% 
+  separate(group_var, into = c("survey_area", "est_year"), sep = "X") %>% 
+  mutate(
+    est_year = as.numeric(est_year),
+    survey_area = factor(survey_area, levels = area_levels_all)) %>% 
+  arrange(survey_area)
+
+
+# Reshape to make filtering easier
+spineless_quants_long <- spineless_size_quants %>% 
+  pivot_longer(
+    cols = -c(survey_area, est_year), 
+    names_to = "Percentile", 
+    values_to = "biomass_kg")
+
+
+
+```
+
+
+
+
+```{r}
+#| label: plot bodymass percentiles
+
+
+# Separate axes
+quants_10 <- quants_long %>% filter(Percentile == "10%") %>% mutate(Percentile = "10th Percentile")
+spiny_10 <-  spineless_quants_long %>% filter(Percentile == "10%") %>% mutate(Percentile = "10th Percentile")
+q10_p <- ggplot() +
+  geom_point(
+    data = quants_10,
+     aes(est_year, biomass_kg*1000, 
+         color = "Wigley Community"),
+     size = 0.8, alpha = 0.5) +
+  geom_ma(
+    data = quants_10,
+    aes(x = est_year, y = biomass_kg*1000, 
+        color = "Wigley Community",
+        linetype = "5-Year Moving Average"),
+    n = 5, ma_fun = SMA) +
+  geom_point(
+    data = spiny_10,
+    aes(est_year, biomass_kg*1000, 
+        color = "Spiny Dogfish Removed"),
+    size = 0.8, alpha = 0.5) +
+  geom_ma(
+    data = spiny_10,
+    aes(x = est_year, y = biomass_kg*1000,
+        color = "Spiny Dogfish Removed",
+        linetype = "5-Year Moving Average"),
+    n = 5, ma_fun = SMA) +
+  scale_color_grey() +
+  scale_y_continuous(labels = label_number(suffix = "g")) +
+  guides(
+    linetype = guide_legend(title.position = "top", title.hjust = 0.5),
+    color = guide_legend(
+      title.position = "top",
+      title.hjust = 0.5,
+      nrow = 2)) +
+  theme(
+    strip.text.y = element_blank(),
+    plot.margin = margin(0,0,0,0)) +
+  facet_grid(survey_area~Percentile) +
+  labs(
+    y = "Bodymass", 
+    x = "Year", 
+    linetype = "Linetype",
+    color = "Community")
+
+
+# Separate axes for 90
+quants_50 <- quants_long %>% filter(Percentile == "50%")  %>% mutate(Percentile = "Median")
+spiny_50 <-  spineless_quants_long %>% filter(Percentile == "50%")   %>% mutate(Percentile = "Median")
+q50_p <-  ggplot() +
+  geom_point(
+    data = quants_50,
+     aes(est_year, biomass_kg, 
+         color = "Wigley Community"),
+     size = 0.8, alpha = 0.5) +
+  geom_ma(
+    data = quants_50,
+    aes(x = est_year, y = biomass_kg, 
+        color = "Wigley Community",
+        linetype = "5-Year Moving Average"),
+    n = 5, ma_fun = SMA) +
+  geom_point(
+    data = spiny_50,
+    aes(est_year, biomass_kg, 
+        color = "Spiny Dogfish Removed"),
+    size = 0.8, alpha = 0.5) +
+  geom_ma(
+    data = spiny_50,
+    aes(x = est_year, y = biomass_kg,
+        color = "Spiny Dogfish Removed",
+        linetype = "5-Year Moving Average"),
+    n = 5, ma_fun = SMA) +
+  scale_color_grey() +
+  scale_y_continuous(labels = label_number(suffix = "kg")) +
+  theme(
+    strip.text.y = element_blank(),
+    plot.margin = margin(0,0,0,0)) +
+  guides(
+    linetype = guide_legend(title.position = "top", title.hjust = 0.5),
+    color = guide_legend(
+      title.position = "top",
+      title.hjust = 0.5,
+      nrow = 2)) +
+  facet_grid(survey_area~Percentile) +
+  labs(
+    y = "", 
+    x = "Year", 
+    linetype = "Linetype",
+    color = "Community")
+
+
+# Separate axes for 90
+quants_90 <- quants_long %>% filter(Percentile == "90%") %>% mutate(Percentile = "90th Percentile")
+spiny_90 <-  spineless_quants_long %>% filter(Percentile == "90%") %>% mutate(Percentile = "90th Percentile")
+q90_p <-  ggplot() +
+  geom_point(
+    data = quants_90,
+     aes(est_year, biomass_kg, 
+         color = "Wigley Community"),
+     size = 0.8, alpha = 0.5) +
+  geom_ma(
+    data = quants_90,
+    aes(x = est_year, y = biomass_kg, 
+        color = "Wigley Community",
+        linetype = "5-Year Moving Average"),
+    n = 5, ma_fun = SMA) +
+  geom_point(
+    data = spiny_90,
+    aes(est_year, biomass_kg, 
+        color = "Spiny Dogfish Removed"),
+    size = 0.8, alpha = 0.5) +
+  geom_ma(
+    data = spiny_90,
+    aes(x = est_year, y = biomass_kg,
+        color = "Spiny Dogfish Removed",
+        linetype = "5-Year Moving Average"),
+    n = 5, ma_fun = SMA) +
+  scale_color_grey() +
+  scale_y_continuous(labels = label_number(suffix = "kg")) +
+  guides(
+    linetype = guide_legend(title.position = "top", title.hjust = 0.5),
+    color = guide_legend(
+      title.position = "top",
+      title.hjust = 0.5,
+      nrow = 2)) +
+  theme(plot.margin = margin(0,0,0,0)) +
+  facet_grid(survey_area~Percentile) +
+  labs(
+    y = "", 
+    x = "Year", 
+    linetype = "Linetype",
+    color = "Community")
+
+
+
+# Assemble
+(q10_p | q50_p | q90_p) + plot_layout(guides = "collect", axes = "collect_x") 
+
+
+```
+
+
+
+
 ## C. Small/Large Fish Trends
 
 The following figures frame "large fish" as individuals with length/bodymass greater than the 90th percentile for all years within that region. "Small fish" are considered smaller than the 10th percentile of the distribution.
@@ -870,6 +1104,8 @@ Percentiles are determined using `DescTools::Quantile()` which uses `numlen_adj`
 If we look at the size distribution **across all species** these are the cutoff percentiles based on length.
 
 ```{r}
+#| eval: false
+
 # Get percentiles based on length for all species
 DescTools::Quantile(
   finfish_in$length_cm, 
@@ -925,9 +1161,9 @@ species_size_quants %>%
 The following figure shows changes in seasonal large and small fish indices within each region. The large and small size thresholds are set for each species independently using their length distributions as in the table above.
 
 
-The axes on these are: $$\frac{\sum{individuals_{ijsk}
-> size~threshold_k}}
-{\sum{individuals_{ijs}}} * 100$$ 
+The axes on these are: $$LFI = \frac{\sum({N_{ijsk}
+> size~threshold_k})}
+{\sum{N_{ijs}}}$$ 
 
 for each: $year_i$, $region_j$, $season_s$ & $species_k$.
 
@@ -967,7 +1203,7 @@ lf_abundbio <- bind_rows(
     .groups = "drop")
 
 # Join and divide
-lfi <- left_join(total_abundbio, lf_abundbio) %>%
+lfi_ffish <- left_join(total_abundbio, lf_abundbio) %>%
   mutate(
     LFI = large_abund / total_abund,
     SFI = small_abund / total_abund)  %>%
@@ -975,26 +1211,6 @@ lfi <- left_join(total_abundbio, lf_abundbio) %>%
     survey_area = factor(survey_area, levels = area_levels_all),
     season = factor(season, levels = c("Spring", "Fall"))) 
 
-
-# #plot it
-# lfi %>%
-#   pivot_longer(cols = c(LFI, SFI), names_to = "Index", values_to = "val") %>%
-#   mutate(size_thresh = if_else(Index == "LFI", ">90th Percentile\nSpecies-Based", "<10th Percentile\nSpecies-Based")) %>%
-#   ggplot(aes(est_year, val, color = season)) +
-#   geom_point(
-#     aes(est_year, val, color = season),
-#     size = 0.8, alpha = 0.5) +
-#   geom_ma(
-#     aes(est_year, val, color = season, linetype = "5-Year Moving Average"), 
-#     n = 5, ma_fun = SMA) +
-#   scale_fill_gmri() +
-#   scale_color_gmri() +
-#   scale_y_continuous(labels = label_percent()) +
-#   facet_nested(survey_area~fct_rev(Index)*size_thresh) +
-#   labs(
-#     x = "Year",
-#     y = "Percent of Overall Abundance",
-#     title = "All Finfish, Large and Small Fish Indices, by Length")
 
 ```
 
@@ -1007,7 +1223,7 @@ lfi <- left_join(total_abundbio, lf_abundbio) %>%
 # Plot them as loing-term average
 
 # Plot the SFI
-sfi_p <- lfi %>% 
+sfi_p <- lfi_ffish %>% 
   ggplot() +
   geom_point(
     aes(est_year, SFI, color = season),
@@ -1019,7 +1235,7 @@ sfi_p <- lfi %>%
   scale_color_gmri() +
   scale_y_continuous(labels = label_percent()) +
   theme(strip.text.y = element_blank()) +
-  facet_grid(survey_area~., scales = "free") +
+  facet_grid(survey_area~., scales = "fixed") +
   labs(
     x = "Year",
     y = "Percent of Total Abundance",
@@ -1031,7 +1247,7 @@ sfi_p <- lfi %>%
 
 
 # Plot the LFI
-lfi_p <- ggplot(lfi) +
+lfi_p <- ggplot(lfi_ffish) +
   geom_point(
     aes(est_year, LFI, color = season),
     size = 0.8, alpha = 0.5) +
@@ -1040,8 +1256,10 @@ lfi_p <- ggplot(lfi) +
     n = 5, ma_fun = SMA) +
   scale_fill_gmri() +
   scale_color_gmri() +
-  scale_y_continuous(labels = label_percent()) +
-  facet_grid(survey_area~., scales = "free") +
+  scale_y_continuous(
+    labels = label_percent(), 
+    expand = expansion(add = c(0,0.05))) +
+  facet_grid(survey_area~., scales = "fixed") +
   labs(
     x = "Year",
     y = "",
@@ -1058,184 +1276,9 @@ lfi_p <- ggplot(lfi) +
 ```
 
 
-### Wigley Regional LFI
+### Wigley Species LFI
 
-There was a question on whether to do LFI and SFI based on the species quantiles, or simply overall regional quantiles.
-
-
-The following table shows what the bodymass percentiles are for each region **for the Wigley subset**. These ignore seasonal and species specific benchmarks.
-
-
-```{r}
-#| label: wigley weighted percentiles
-#| eval: true
-
-# # Get 90th or 95th percentile as size threshold
-# Do them separately
-area_size_quants <- bind_rows(
-    mutate(wigley_in, survey_area = "Northeast Shelf"),
-    wigley_in) %>% 
-  split(.$survey_area) %>% 
-  map_dfr(function(x,y){
-    
-    DescTools::Quantile(
-      # x$length_cm, 
-      x$ind_weight_kg,
-      weights = x$numlen_adj, 
-      probs = c(0.05, 0.1, 0.5, 0.90, .95)) %>% 
-      t() %>% 
-      as_tibble() 
-  }, .id = "survey_area") %>% 
-  mutate(survey_area = factor(survey_area, levels = area_levels_all)) %>% 
-  arrange(survey_area)
-
-# Show the table
-area_size_quants %>% 
-  mutate_if(is.numeric, round, 2) %>% 
-  gt() %>% 
-  tab_header(title = "Wigley Species - Body Mass Quantiles (kg)") %>% tab_spanner(label = "Percentile", columns = -survey_area) %>% 
-  cols_label("survey_area" = "")
-
-```
-
-Then this figure shows what the LFI and SFI indices are using those same overall benchmarks which ignore species:
-
-
-```{r}
-#| label: wigley lfi plots
-#| eval: true
-
-# Assign large/small
-wigley_in <- wigley_in %>% 
-  left_join(select(area_size_quants, survey_area, `10%`, `90%`)) %>%   
-  mutate(
-    small = ifelse(ind_weight_kg < `10%`, T, F),
-    large = ifelse(ind_weight_kg > `90%`, T, F))
-
-
-
-# Get total abundance
-total_abundbio <- bind_rows(
-    mutate(wigley_in, survey_area = "Northeast Shelf"),
-    wigley_in) %>% 
-  group_by(survey_area, est_year, season) %>% 
-  summarise(
-    total_abund = sum(numlen_adj),
-    total_bio = sum(sum_weight_kg),
-    .groups = "drop")
-  
-  
-# Get large fish bio
-lf_abundbio <- bind_rows(
-    mutate(wigley_in, survey_area = "Northeast Shelf"),
-    wigley_in) %>% 
-  group_by(survey_area, est_year, season) %>% 
-  summarise(
-    small_abund = sum(numlen_adj * small),
-    large_abund = sum(numlen_adj * large),
-    .groups = "drop")
-
-
-
-# Join and divide
-lfi <- left_join(total_abundbio, lf_abundbio) %>% 
-  mutate(
-    LFI = large_abund / total_abund,
-    SFI = small_abund / total_abund)  %>% 
-  mutate(survey_area = factor(survey_area, levels = area_levels_all)) %>% 
-  left_join(
-    select(area_size_quants, survey_area, `10%`, `90%`) %>% 
-    mutate(across(-survey_area, \(x) str_c(round(x, 2), " kg")))) %>% 
-  mutate(season = factor(season, levels = c("Spring", "Fall")))
-
-```
-
-
-
-
-```{r}
-#| label: plot wigley regional lfi
-
-
-# Plot them as loing-term average
-# Plot the SFI
-sfi_p <- lfi %>% 
-  ggplot() +
-  geom_point(
-    aes(est_year, SFI, color = season),
-    size = 0.8, alpha = 0.5) +
-  geom_ma(
-    aes(est_year, SFI, color = season, linetype = "5-Year Moving Average"), 
-    n = 5, ma_fun = SMA) +
-  scale_fill_gmri() +
-  scale_color_gmri() +
-  scale_y_continuous(labels = label_percent()) +
-  theme(strip.text.y = element_blank()) +
-  facet_grid(survey_area~., scales = "free") +
-  labs(
-    x = "Year",
-    y = "Percent of Total Abundance",
-    title = "Wigley Species",
-    subtitle = "Small Fish Index\n(<10 Percentile\nRegional-Mass Distribution)",
-    fill = "Season",
-    color = "Season",
-    linetype = "")
-
-
-# Plot the LFI
-lfi_p <- ggplot(lfi) +
-  geom_point(
-    aes(est_year, LFI, color = season),
-    size = 0.8, alpha = 0.5) +
-  geom_ma(
-    aes(est_year, LFI, color = season, linetype = "5-Year Moving Average"), 
-    n = 5, ma_fun = SMA) +
-  scale_fill_gmri() +
-  scale_color_gmri() +
-  scale_y_continuous(labels = label_percent()) +
-  facet_grid(survey_area~., scales = "free") +
-  labs(
-    x = "Year",
-    y = "",
-    subtitle = "Large Fish Index\n(>90 Percentile\nRegional-Mass Distribution)",
-    fill = "Season",
-    color = "Season",
-    linetype = "")
-
-
-
-# Plot together
-(sfi_p | lfi_p) + plot_layout(guides = "collect")
-
-```
-
-Using these broad group quantiles, we have the following species are represented within the large fish index:
-
-
-```{r}
-
-big_fishes <- wigley_in %>% 
-  filter(large) %>% 
-  distinct(comname) %>% 
-  arrange(comname) %>% 
-  rename(`Common Name:` = comname) 
-
-
-# Print it neatly
-pander(big_fishes$`Common Name:`)
-
-```
-
-You might think: "Why is a 1kg acadian redfish a "large fish"?". That's a consequence of abundance declining with size pretty dramatically.
-
-
-There's really just so few "large" individuals that the percentiles sit quite small.
-
-
-
-### Wigley Species-Specific LFI
-
-Using species-specific size distribution quantiles shifts the story very little: so little that I feel like its bugged, but I can't track down where
+Applying the same species-specific size distribution quantiles approach to the Wigley commynity shifts the story a little.
 
 ```{r}
 
@@ -1274,9 +1317,9 @@ species_size_quants %>%
 The following figure shows changes in seasonal large and small fish indices within each region. The large and small size thresholds are set for each species independently using their weight distributions as in the table above.
 
 ```{r}
+
 # Assign large/small indicators
 wigley_lfi <- wigley_in %>% 
-  select(-small, -large) %>% 
   left_join(select(species_size_quants, comname, `10%`, `90%`)) %>%   
   mutate(
     small = ifelse(ind_weight_kg < `10%`, T, F),
@@ -1339,12 +1382,12 @@ sfi_p <- lfi %>%
   scale_color_gmri() +
   scale_y_continuous(labels = label_percent()) +
   theme(strip.text.y = element_blank()) +
-  facet_grid(survey_area~., scales = "free") +
+  facet_grid(survey_area~., scales = "fixed") +
   labs(
     x = "Year",
     y = "Percent of Total Abundance",
     title = "Wigley Species",
-    subtitle = "Small Fish Index\n(<10 Percentile\nSpecies-Mass Distribution)",
+    subtitle = "Small Fish Index",
     fill = "Season",
     color = "Season",
     linetype = "")
@@ -1360,12 +1403,14 @@ lfi_p <- ggplot(lfi) +
     n = 5, ma_fun = SMA) +
   scale_fill_gmri() +
   scale_color_gmri() +
-  scale_y_continuous(labels = label_percent()) +
-  facet_grid(survey_area~., scales = "free") +
+  scale_y_continuous(
+    labels = label_percent(), 
+    expand = expansion(add = c(0,0.05))) +
+  facet_grid(survey_area~., scales = "fixed") +
   labs(
     x = "Year",
     y = "",
-    subtitle = "Large Fish Index\n(>90 Percentile\nSpecies-Mass Distribution)",
+    subtitle = "Large Fish Index",
     fill = "Season",
     color = "Season",
     linetype = "")
@@ -1408,15 +1453,6 @@ species_size_quants <- gfish_comp %>%
 
 
 
-# # Show the table
-# species_size_quants %>% 
-#   mutate_if(is.numeric, round, 2) %>% 
-#   gt() %>% 
-#   tab_header(title = "Groundfish Complex - Body Mass Quantiles (kg)") %>% tab_spanner(label = "Percentile", columns = -survey_area) %>% 
-#   cols_label("survey_area" = "")
-
-
-
 # Assign large/small
 gfish_comp <- gfish_comp %>% 
   left_join(select(species_size_quants, comname, `10%`, `90%`)) %>%   
@@ -1456,10 +1492,7 @@ lfi <- left_join(total_abundbio, lf_abundbio) %>%
     SFI = small_abund / total_abund)  %>% 
   mutate(
     survey_area = factor(survey_area, levels = area_levels_all),
-    season = factor(season, levels = c("Spring", "Fall"))) %>% 
-  left_join(
-    select(area_size_quants, survey_area, `10%`, `90%`) %>% 
-      mutate(across(-survey_area, \(x) str_c(round(x, 2), " kg"))))
+    season = factor(season, levels = c("Spring", "Fall")))
 
 ```
 
@@ -1482,7 +1515,7 @@ sfi_p <- lfi %>%
   scale_color_gmri() +
   scale_y_continuous(labels = label_percent()) +
   theme(strip.text.y = element_blank()) +
-  facet_grid(survey_area~., scales = "free") +
+  facet_grid(survey_area~., scales = "fixed") +
   labs(
     x = "Year",
     y = "Percent of Total Abundance",
@@ -1503,8 +1536,8 @@ lfi_p <- ggplot(lfi) +
     n = 5, ma_fun = SMA) +
   scale_fill_gmri() +
   scale_color_gmri() +
-  scale_y_continuous(labels = label_percent()) +
-  facet_grid(survey_area~., scales = "free") +
+  scale_y_continuous(labels = label_percent(), expand = expansion(add = c(0,0.05))) +
+  facet_grid(survey_area~., scales = "fixed") +
   labs(
     x = "Year",
     y = "",
@@ -1520,90 +1553,6 @@ lfi_p <- ggplot(lfi) +
 
 ```
 
-
-### Shift in Regional Percentile Size
-
-A 90th percentile fish is smaller than I feel it has been in the past, so I wanted to plot those quantiles over time.
-
-Indeed, the 90th & 95th percentile size for fishes in the GOM was nearly 2x what it is today.
-
-
-```{r}
-
-# Do them separately
-yearly_size_quants <- bind_rows(
-    mutate(wigley_in, survey_area = "Northeast Shelf"),
-    wigley_in) %>% 
-  unite(col = "group_var", survey_area, est_year, sep = "X", remove = T) %>% 
-  split(.$group_var) %>% 
-  map_dfr(function(x,y){
-    
-    DescTools::Quantile(
-      # x$length_cm, 
-      x$ind_weight_kg,
-      weights = x$numlen_adj, 
-      probs = c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.90, .95)) %>% 
-      t() %>% 
-      as_tibble() 
-  }, .id = "group_var") %>% 
-  separate(group_var, into = c("survey_area", "est_year"), sep = "X") %>% 
-  mutate(
-    est_year = as.numeric(est_year),
-    survey_area = factor(survey_area, levels = area_levels_all)) %>% 
-  arrange(survey_area)
-
-
-# Reshape to make filtering easier
-quants_long <- yearly_size_quants %>% 
-  #select(-c(`5%`,`50%`, `95%`)) %>% 
-  pivot_longer(cols = -c(survey_area, est_year), names_to = "Percentile", values_to = "biomass_kg") 
-
-
-# Separate axes
-q10_p <- quants_long %>%
-  filter(Percentile == "10%") %>% 
-  ggplot(aes(est_year, biomass_kg)) +
-  geom_point(size = 0.8, alpha = 0.5) +
-  geom_ma(n = 5, ma_fun = SMA, aes(linetype = "5-Year Moving Average"), color = "black") +
-  scale_color_gmri() +
-  theme(
-    strip.text.y = element_blank(),
-    plot.margin = margin(0,0,0,0)) +
-  facet_grid(survey_area~Percentile) +
-  labs(y = "Bodymass (kg)", x = "Year", linetype = "")
-
-# Separate axes
-q90_p <- quants_long %>%
-  filter(Percentile == "90%") %>% 
-  ggplot(aes(est_year, biomass_kg)) +
-  geom_point(size = 0.8, alpha = 0.5) +
-  geom_ma(n = 5, ma_fun = SMA, aes(linetype = "5-Year Moving Average"), color = "black") +
-  scale_color_gmri(reverse = T) +
-  theme(
-    strip.text.y = element_blank(),
-    plot.margin = margin(0,0,0,0)) +
-  facet_grid(survey_area~Percentile) +
-  labs(y = "", x = "Year", linetype = "")
-
-
-# Separate axes
-q95_p <- quants_long %>%
-  filter(Percentile == "95%") %>% 
-  ggplot(aes(est_year, biomass_kg)) +
-  geom_point(size = 0.8, alpha = 0.5) +
-  geom_ma(n = 5, ma_fun = SMA, aes(linetype = "5-Year Moving Average"), color = "black") +
-  scale_color_gmri(reverse = T) +
-  theme(plot.margin = margin(0,0,0,0)) +
-  facet_grid(survey_area~Percentile) +
-  labs(y = "", x = "Year", linetype = "")
-
-(q10_p | q90_p | q95_p) + plot_layout(guides = "collect", axes = "collect_x") +
-  plot_annotation(title = "Size Percentile Changes")
-
-
-```
-
-10th percentile weights seem stable. 90th percentile body-weights have fluctuated over time.
 
 
 :::
@@ -1716,57 +1665,6 @@ wigley_in %>%
     fill = "Normalized Abundance Density\n(abundance / bin-width)")
 
 ```
-
-### Spring & Fall
-
-```{r}
-#| label: binned method gghack
-#| eval: true
-
-# We need to normalize to be comparable to the Edwards method
-# Might be able to just assign the bins and their widths, then divide the weights by that
-# ^ seems to work!
-
-# add the spectra slope values from MLE method as a side value, could use facet grid label
-
-# plot the normalized
-wigley_in %>% 
-  mutate(survey_area = factor(survey_area, levels = area_levels)) %>% 
-  filter(ind_weight_kg <= 30) %>% 
-  assign_log2_bins(log2_increment = 1) %>% 
-  mutate(season = season,
-         decade = str_c(floor_decade(est_year), "'s")) %>% 
-  ggplot(aes(
-    x = ind_weight_g, weight = numlen_adj/bin_width)) + 
-  geom_histogram(
-    aes(fill = after_stat(density)),
-    breaks = 2^seq(0,16,1), color = "gray90", linewidth = 0.2) +
-  scale_y_continuous(
-    transform = transform_log(base = 2),
-    labels = label_log(base = 2),
-    expand = expansion(add = c(0,0))) +
-  scale_x_continuous(
-    transform = transform_log(base = 2),
-    labels = label_log(base = 2),
-    breaks = 2^seq(0,16, 2),
-    limits = c(1, 2^14),
-    expand = expansion(add = c(0,0))) +
-  scale_fill_distiller(palette = "YlGnBu", direction = 1) +
-  scale_color_gmri() +
-  #facet_nested(decade~survey_area*fct_rev(season)) +
-  facet_nested(survey_area*fct_rev(season)~decade) +
-  theme(
-    axis.text.y = element_blank(), 
-    panel.grid.major.y = element_blank(), 
-    legend.position = "bottom") +
-  labs(
-    title = "Normalized Biomass Spectra",
-    x = "Mass (g)",
-    y = "Density",
-    fill = "Normalized Abundance Density\n(abundance / bin-width)")
-
-```
-
 
 
 :::
@@ -2007,16 +1905,16 @@ wigley_bmspectra_model_df %>%
     shape = "Survey Area")
 ```
 
-# Temperature Sentiment
+# Temperature and Size Structure
 
 
-I believe that the size distribution along the shelf is responsive on shorter time scales to temperature changes than hypotheses that predict temperature related changes in growth. This is the seasonal variability in spectra we see.
+From what I see the size distribution along the shelf is responding consistently with temperature changes on shorter time scales than hypotheses that predict temperature related changes in growth. 
 
-This suggests to me that the community size distribution is likely less sensistive to long-term trends in temperature since the distribution is able to effectively track swings in temperature that happen within the year.
+Seasonal movements contributing to this could maybe be explained by expectations from the MTE. And/or the increased mobility of larger individuals, or some other ecological mechanism like summer foraging opportunity in the North.
 
-I think there is an important question about temperature's role, but I don't think that local warming is having much impact on the community size distribution. 
+The consistency in the seasonal restructuring suggests to me that the size distribution is maybe less sensistive to long-term trends in temperature than other immediate factors. I say this noticing that the distribution is able to effectively track swings in temperature that happen within the year.
 
-If it is, it is secondary to other size distribution shifts happening at shorter time scales and across spatial scales.
+I think there is an important question about temperature's role, but I don't think that local warming is having much impact on the community size distribution. If it is, it is secondary to other size distribution shifts happening at shorter time scales and across spatial scales.
 
 This raises questions about how seasonal size distribution changes are being achieved. 
 

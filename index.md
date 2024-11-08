@@ -16,4 +16,5 @@ This index page serves as a link directory to results reports. Use the following
  
  5. [Refocusing on a story](https://adamkemberling.github.io/Spectra_Northeast/Code/R/checks/Spectra_Story_Dev.html)
  
+ 6. [Bear Necessities](https://adamkemberling.github.io/Spectra_Northeast/Code/R/checks/Story_Minimal.html)
  
