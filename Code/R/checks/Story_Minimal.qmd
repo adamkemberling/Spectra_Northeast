@@ -303,12 +303,7 @@ size_trend_predictions <- get_preds_and_trendsignif(wt_mod_wig) %>%
 
 
 
-
-
-# Left side: 
 # Median length - all species
-# color = season vs. annual
-# facet_wrap(~survey_area)
 size_long <- size_results %>% 
   pivot_longer(cols = c(med_len_cm, med_wt_kg), 
                names_to = "metric", 
@@ -461,7 +456,7 @@ Looking at different areas within the region, Fall temperatures are increasing a
 
 
 
-## E. Size Distribution Percentiles & Spiny Dogfish
+## E. Size Distribution Percentiles 
 
 A 90th percentile fish is smaller than I feel it has been in the past, so I wanted to plot those quantiles over time.
 
@@ -695,9 +690,149 @@ q90_p <-  ggplot() +
 ```
 
 
+```{r}
+# remake the above plot as seasonal
+
+# Do them separately
+wigley_season_qs <- bind_rows(
+    mutate(wigley_in, 
+           area = "Northeast Shelf"),
+    wigley_in) %>% 
+  unite(col = "group_var", area, est_year, season, sep = "X", remove = T) %>% 
+  split(.$group_var) %>% 
+  map_dfr(function(x,y){
+    
+    DescTools::Quantile(
+      # x$length_cm, 
+      x$ind_weight_kg,
+      weights = x$numlen_adj, 
+      probs = c(0.1, 0.5, 0.90)) %>% 
+      t() %>% 
+      as_tibble() 
+  }, .id = "group_var") %>% 
+  separate(group_var, into = c("area", "est_year", "season"), sep = "X") %>% 
+  mutate(
+    est_year = as.numeric(est_year),
+    area = factor(area, levels = area_levels_long_all),
+    season = factor(season, levels = c("Spring", "Fall"))) %>% 
+  arrange(area) %>% 
+  pivot_longer(
+    cols = -c(area, est_year, season), 
+    names_to = "Percentile", 
+    values_to = "biomass_kg")  %>% 
+  group_by(area, season, Percentile) %>% 
+  arrange(est_year) %>% 
+  mutate(kg_roll = zoo::rollapply(biomass_kg, 5, mean, na.rm = T, align = "right",  fill = NA))
 
 
-## E. Small/Large Fish Indices
+#-------------
+
+# Take the data excluding dogfish
+no_spiny <- filter(wigley_in, comname != "spiny dogfish")
+
+
+# Do them separately
+spiny_season_qs <- bind_rows(
+    mutate(no_spiny, area = "Northeast Shelf"),
+    no_spiny) %>% 
+  unite(col = "group_var", area, est_year, season, sep = "X", remove = T) %>% 
+  split(.$group_var) %>% 
+  map_dfr(function(x,y){
+    
+    DescTools::Quantile(
+      # x$length_cm, 
+      x$ind_weight_kg,
+      weights = x$numlen_adj, 
+      probs = c(0.1, 0.5, 0.90)) %>% 
+      t() %>% 
+      as_tibble() 
+  }, .id = "group_var") %>% 
+  separate(group_var, into = c("area", "est_year", "season"), sep = "X") %>% 
+  mutate(
+    est_year = as.numeric(est_year),
+    area = factor(area, levels = area_levels_long_all),
+    season = factor(season, levels = c("Spring", "Fall"))) %>% 
+  arrange(area) %>% 
+  pivot_longer(
+    cols = -c(area, est_year, season), 
+    names_to = "Percentile", 
+    values_to = "biomass_kg") %>% 
+  group_by(area, season, Percentile) %>% 
+  arrange(est_year) %>% 
+  mutate(kg_roll = zoo::rollapply(biomass_kg, 5, mean, na.rm = T, align = "right",  fill = NA))
+
+```
+
+
+### Dogfish Impact on Seasonal Differences
+
+the seasonality in the 90th percentile shift doesn't really speak to migration so much as dogfish leaving MAB entirely in fall.
+
+```{r}
+###
+# # Load the stupid image
+# # library(magick)
+# df_img <- magick::image_read(here::here("Data/phylopics/squalus_phylopic.png"))
+
+
+
+
+# Separate axes for 90
+quants_90 <- wigley_season_qs %>% filter(Percentile == "90%") %>% mutate(Percentile = "90th Percentile")
+spiny_90 <-  spiny_season_qs %>% filter(Percentile == "90%") %>% mutate(Percentile = "90th Percentile")
+
+
+library(ggimage)
+
+# dogfish locations - use the data
+
+
+# q90_p <-  
+ggplot() +
+  geom_area(
+    data = quants_90,
+    aes(x = est_year, y = kg_roll, 
+        fill = "Complete Community"),
+    alpha = 0.6, color = "gray70") +
+  geom_area(
+    data = spiny_90,
+    aes(x = est_year, y = kg_roll, 
+        fill = "Spiny Dogfish Removed"),
+    alpha = 0.6, color = "gray20") +
+  geom_image(
+    data = filter(
+      quants_90, 
+      est_year == 2008, 
+      !(area == "Mid-Atlantic Bight" & season == "Fall")), 
+    aes(est_year, kg_roll*1.65, 
+        image = here::here("Data/phylopics/squalus_phylopic.png")),
+    size = 0.35) +
+  scale_fill_manual(values = c("gray70", "gray20")) +
+  scale_x_continuous(expand = expansion(add = c(0,0))) +
+  scale_y_continuous(labels = label_number(suffix = "kg")) +
+  guides(
+    linetype = guide_legend(title.position = "top", title.hjust = 0.5),
+    color = guide_legend(
+      title.position = "top",
+      title.hjust = 0.5,
+      nrow = 2)) +
+  theme(plot.margin = margin(0,0,0,0),
+        strip.background = element_rect(color = "white", linewidth = 0.2)) +
+  facet_nested(
+    area~Percentile*season,
+    labeller = labeller(
+      area = label_wrap_gen(width = 8),
+      Percentile = ~str_c(.x, " of Body Mass Distribution"))) +
+  labs(
+    y = "Individual Bodymass", 
+    x = "Year", 
+    fill = "Community")
+
+```
+
+
+
+## F. Small/Large Fish Indices
 
 
 **NOTE:**
