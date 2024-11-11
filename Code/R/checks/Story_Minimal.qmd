@@ -40,6 +40,7 @@ library(ggdist)
 library(pander)
 library(ggh4x)
 library(nlme)
+library(ggimage)
 conflicted::conflict_prefer("select", "dplyr")
 conflicted::conflict_prefer("filter", "dplyr")
 conflicted::conflicts_prefer(lmerTest::lmer)
@@ -731,7 +732,7 @@ wigley_season_qs <- bind_rows(
 no_spiny <- filter(wigley_in, comname != "spiny dogfish")
 
 
-# Do them separately
+# Do them without dogfish separately
 spiny_season_qs <- bind_rows(
     mutate(no_spiny, area = "Northeast Shelf"),
     no_spiny) %>% 
@@ -761,6 +762,10 @@ spiny_season_qs <- bind_rows(
   arrange(est_year) %>% 
   mutate(kg_roll = zoo::rollapply(biomass_kg, 5, mean, na.rm = T, align = "right",  fill = NA))
 
+
+
+
+
 ```
 
 
@@ -769,26 +774,25 @@ spiny_season_qs <- bind_rows(
 the seasonality in the 90th percentile shift doesn't really speak to migration so much as dogfish leaving MAB entirely in fall.
 
 ```{r}
-###
-# # Load the stupid image
-# # library(magick)
-# df_img <- magick::image_read(here::here("Data/phylopics/squalus_phylopic.png"))
-
-
-
+#| label: dogfish removal
 
 # Separate axes for 90
-quants_90 <- wigley_season_qs %>% filter(Percentile == "90%") %>% mutate(Percentile = "90th Percentile")
-spiny_90 <-  spiny_season_qs %>% filter(Percentile == "90%") %>% mutate(Percentile = "90th Percentile")
+quants_10 <- wigley_season_qs %>% 
+  filter(Percentile == "10%") %>% 
+  mutate(Percentile = "10th Percentile")
+quants_90 <- wigley_season_qs %>% 
+  filter(Percentile == "90%") %>% 
+  mutate(Percentile = "90th Percentile")
+spiny_10 <-  spiny_season_qs %>% 
+  filter(Percentile == "10%") %>% 
+  mutate(Percentile = "10th Percentile")
+spiny_90 <-  spiny_season_qs %>% 
+  filter(Percentile == "90%") %>% 
+  mutate(Percentile = "90th Percentile")
 
 
-library(ggimage)
-
-# dogfish locations - use the data
-
-
-# q90_p <-  
-ggplot() +
+# 90th percentile dogfish changes
+q90_df_p <-  ggplot() +
   geom_area(
     data = quants_90,
     aes(x = est_year, y = kg_roll, 
@@ -810,6 +814,7 @@ ggplot() +
   scale_fill_manual(values = c("gray70", "gray20")) +
   scale_x_continuous(expand = expansion(add = c(0,0))) +
   scale_y_continuous(labels = label_number(suffix = "kg")) +
+  #coord_flip() +
   guides(
     linetype = guide_legend(title.position = "top", title.hjust = 0.5),
     color = guide_legend(
@@ -827,9 +832,173 @@ ggplot() +
     y = "Individual Bodymass", 
     x = "Year", 
     fill = "Community")
+q90_df_p
+```
+
+
+```{r}
+#| label: drop single key species
+#| eval: false
+
+# # Drop a single species
+# drop_species <- "atlantic herring"
+# oneout_season_qs <- bind_rows(
+#     mutate(no_spiny, area = "Northeast Shelf"),
+#     no_spiny) %>% 
+#   filter(comname != drop_species) %>% 
+#   unite(col = "group_var", area, est_year, season, sep = "X", remove = T) %>% 
+#   split(.$group_var) %>% 
+#   map_dfr(function(x,y){
+#     
+#     DescTools::Quantile(
+#       # x$length_cm, 
+#       x$ind_weight_kg,
+#       weights = x$numlen_adj, 
+#       probs = c(0.1, 0.5, 0.90)) %>% 
+#       t() %>% 
+#       as_tibble() 
+#   }, .id = "group_var") %>% 
+#   separate(group_var, into = c("area", "est_year", "season"), sep = "X") %>% 
+#   mutate(
+#     est_year = as.numeric(est_year),
+#     area = factor(area, levels = area_levels_long_all),
+#     season = factor(season, levels = c("Spring", "Fall"))) %>% 
+#   arrange(area) %>% 
+#   pivot_longer(
+#     cols = -c(area, est_year, season), 
+#     names_to = "Percentile", 
+#     values_to = "biomass_kg") %>% 
+#   group_by(area, season, Percentile) %>% 
+#   arrange(est_year) %>% 
+#   mutate(kg_roll = zoo::rollapply(biomass_kg, 5, mean, na.rm = T, align = "right",  fill = NA))
+# 
+# # Just lower size end
+# oneout_10 <-  oneout_season_qs %>% 
+#   filter(Percentile == "10%") %>% 
+#   mutate(Percentile = "10th Percentile")
+# 
+# 
+# 
+# 
+# # Plot the impacts:
+# ggplot() +
+#   geom_area(
+#     data = quants_10,
+#     aes(x = est_year, y = kg_roll, 
+#         fill = "Complete Community"),
+#     alpha = 0.6, color = "gray70") +
+#   geom_area(
+#     data = oneout_10,
+#     aes(x = est_year, y = kg_roll, 
+#         fill = str_c("Removed ", drop_species)),
+#     alpha = 0.6, color = "gray20") +
+#   scale_fill_manual(values = c("gray70", "gray20")) +
+#   scale_x_continuous(expand = expansion(add = c(0,0))) +
+#   scale_y_continuous(labels = label_number(suffix = "kg")) +
+#   #coord_flip() +
+#   guides(
+#     linetype = guide_legend(title.position = "top", title.hjust = 0.5),
+#     color = guide_legend(
+#       title.position = "top",
+#       title.hjust = 0.5,
+#       nrow = 2)) +
+#   theme(plot.margin = margin(0,0,0,0),
+#         strip.background = element_rect(color = "white", linewidth = 0.2)) +
+#   facet_nested(
+#     area~Percentile*season,
+#     labeller = labeller(
+#       area = label_wrap_gen(width = 8),
+#       Percentile = ~str_c(.x, " of Body Mass Distribution"))) +
+#   labs(
+#     y = "Individual Bodymass", 
+#     x = "Year", 
+#     fill = "Community")
+# 
+# 
+# 
+# 
+# 
+# # Upper size end
+# oneout_90 <-  oneout_season_qs %>% 
+#   filter(Percentile == "90%") %>% 
+#   mutate(Percentile = "90th Percentile")
+# 
+# # this is dumb
+# ggplot() +
+#   geom_area(
+#     data = quants_90,
+#     aes(x = est_year, y = kg_roll, 
+#         fill = "Complete Community"),
+#     alpha = 0.6, color = "gray70") +
+#   geom_area(
+#     data = oneout_90,
+#     aes(x = est_year, y = kg_roll, 
+#         fill = str_c("Removed ", drop_species)),
+#     alpha = 0.6, color = "gray20") +
+#   scale_fill_manual(values = c("gray70", "gray20")) +
+#   scale_x_continuous(expand = expansion(add = c(0,0))) +
+#   scale_y_continuous(labels = label_number(suffix = "kg")) +
+#   #coord_flip() +
+#   guides(
+#     linetype = guide_legend(title.position = "top", title.hjust = 0.5),
+#     color = guide_legend(
+#       title.position = "top",
+#       title.hjust = 0.5,
+#       nrow = 2)) +
+#   theme(plot.margin = margin(0,0,0,0),
+#         strip.background = element_rect(color = "white", linewidth = 0.2)) +
+#   facet_nested(
+#     area~Percentile*season,
+#     labeller = labeller(
+#       area = label_wrap_gen(width = 8),
+#       Percentile = ~str_c(.x, " of Body Mass Distribution"))) +
+#   labs(
+#     y = "Individual Bodymass", 
+#     x = "Year", 
+#     fill = "Community")
+
 
 ```
 
+```{r}
+#| label: dogfish percentage biomass
+
+dogfish_fraction <- bind_rows(
+    mutate(
+      wigley_in, 
+      area = "Northeast Shelf"),
+    wigley_in) %>% 
+  group_by(area, est_year, season) %>% 
+  summarise(
+    dogfish_abund = sum(numlen_adj * (comname == "spiny dogfish"), na.rm = T),
+    total_abund   = sum(numlen_adj, na.rm = T),
+    dogfish_bio   = sum(sum_weight_kg * (comname == "spiny dogfish"), na.rm = T),
+    total_bio     = sum(sum_weight_kg, na.rm = T),
+    .groups = "drop") %>% 
+  mutate(
+    area = factor(area, levels = area_levels_long_all),
+    season = factor(season, levels = c("Spring", "Fall")),
+    dogfish_abund_fraction = (dogfish_abund / total_abund),
+    dogfish_bio_fraction = (dogfish_bio / total_bio))
+
+dogfish_fraction %>% 
+  pivot_longer(cols = ends_with("fraction"), names_to = "metric", values_to = "fraction") %>% 
+  mutate(metric = if_else(str_detect(metric, "abund"), "Abundance", "Biomass")) %>% 
+ggplot(aes(est_year, fraction)) +
+  geom_area(aes(color = season, fill = season), alpha = 0.2) +
+  #geom_line(aes(color = season, fill = season), alpha = 0.2) +
+  facet_nested(area~metric*season) +
+  scale_y_continuous(
+    labels = label_percent(),
+    limits = c(0,1), expand = expansion(add = c(0,0))) +
+  scale_color_gmri() +
+  scale_fill_gmri() +
+  labs(y = "Community Fraction",
+       x = "Year",
+       title= " Dogfish as a Fraction of Total Abundance/Bio",
+       color = "Season",
+       fill = "Season")
+```
 
 
 ## F. Small/Large Fish Indices
@@ -1121,7 +1290,7 @@ This is the model I would suggest gets the most at "Warming" impacting regional 
 
 
 # Just drop the random effect part for now
-temp_model_ar <- nlme::gls(
+anom_model_ar <- nlme::gls(
   b ~ area * season * scale(bot_temp_anom), 
   data = wigley_bmspectra_model_df, 
   correlation = corAR1(form = ~ est_year | area/season)
@@ -1129,12 +1298,12 @@ temp_model_ar <- nlme::gls(
 
 
 # # confidence intervals on phi
-# intervals(temp_model_ar)$corStruct
+# intervals(anom_model_ar)$corStruct
 
 
 # # check the model
-# check_model(temp_model_ar)
-# plot(check_collinearity(temp_model_ar))
+# check_model(anom_model_ar)
+# plot(check_collinearity(anom_model_ar))
 # plot(
 #   check_collinearity(
 #     nlme::gls(
@@ -1149,7 +1318,7 @@ temp_model_ar <- nlme::gls(
 # Plot the predictions over data
 mod2_preds <- as.data.frame(
   ggpredict(
-    temp_model_ar, 
+    anom_model_ar, 
     terms = ~ bot_temp_anom * area * season))   %>% 
   mutate(
     area = factor(group, levels = area_levels_long_all),
@@ -1161,7 +1330,7 @@ mod2_preds <- as.data.frame(
 
 # Flag effect fits that are non-significant  ###
 mod2_emtrend <- emtrends(
-  object = temp_model_ar,
+  object = anom_model_ar,
   specs =  ~ area * season,
   var = "bot_temp_anom") %>%
   as_tibble() %>%
@@ -1209,11 +1378,115 @@ local_btemp_anoms
 Based on this model I would say there is evidence of a warming effect in: GOM-Spring, GB-Spring, GB-Fall, & SNE-Fall.
 
 
+### Temperature Model
+
+We were originally using absolute temperatures, which are scaled, and I was curious with the AR error structure how different this would be.
+
+I just had to see if the same model is better performing or leads to different results when it knows absolute temperatures.
+
+
+```{r}
+
+
+# Just drop the random effect part for now
+temp_model_ar <- nlme::gls(
+  b ~ area * season * scale(bot_temp), 
+  data = wigley_bmspectra_model_df, 
+  correlation = corAR1(form = ~ est_year | area/season)
+)
+
+
+# # confidence intervals on phi
+# intervals(temp_model_ar)$corStruct
+# 
+# # check the model
+# check_model(temp_model_ar)
+
+# # Collinearity without interactions
+# plot(
+#   check_collinearity(
+#      nlme::gls(
+#         b ~ area + season + scale(bot_temp), 
+#         data = wigley_bmspectra_model_df, 
+#         correlation = corAR1(form = ~ est_year | area/season))
+# ))
+
+
+# Clean up the plot:
+# Plot the predictions over data
+mod2_preds <- as.data.frame(
+  ggpredict(
+    temp_model_ar, 
+    terms = ~ bot_temp * area * season))   %>% 
+  mutate(
+    area = factor(group, levels = area_levels_long_all),
+    season = factor(facet, levels = c("Spring", "Fall")))
+
+
+
+#### Trend Posthoc  ####
+
+# Flag effect fits that are non-significant  ###
+mod2_emtrend <- emtrends(
+  object = temp_model_ar,
+  specs =  ~ area * season,
+  var = "bot_temp") %>%
+  as_tibble() %>%
+  mutate(
+    zero = 0,
+    non_zero = if_else(between(zero, lower.CL, upper.CL), F, T))
+
+
+# Limit temperature plotting range
+actual_range <- wigley_bmspectra_model_df %>%
+  group_by(season, area) %>%
+  summarise(
+    min_temp = min(bot_temp)-2,
+    max_temp = max(bot_temp)+2,
+    .groups = "drop")
+
+
+
+# Plot over observed data
+local_btemp_results <- mod2_preds %>% 
+  left_join(actual_range) %>%
+  filter((x < min_temp) == F,
+         (x > max_temp) == F) %>%
+  left_join(select(mod2_emtrend, area, season, non_zero)) %>%
+  filter(non_zero) %>%
+  ggplot() +
+  geom_ribbon(aes(x, ymin = conf.low, ymax = conf.high, group = season), alpha = 0.1) +
+  geom_line(
+    aes(x, predicted, color = season), 
+    linewidth = 1) +
+  geom_point(
+    data = wigley_bmspectra_model_df,
+    aes(bot_temp, b, color = season),
+    alpha = 0.4,
+    size = 1) +
+  facet_grid(area~., scales = "free", labeller = label_wrap_gen(width = 8)) +
+  scale_color_gmri() +
+  scale_x_continuous(labels = label_number(suffix = deg_c)) +
+  labs(y = "Mass distribution Exponent",
+       x = "Seasonal Bottom Temperature")
+local_btemp_results
+
+```
+
+
+Verdict: Temperature itself performs better, and is simpler to produce/explain.
+
+```{r}
+data.frame(
+  "Model" = c("Temperature Model", "Anomalies Model"),
+  "AIC" = c(AIC(temp_model_ar), AIC(anom_model_ar))) %>% 
+  gt()
+```
+
 
 ## Total Landings
 
 The landings information is the newer GARFO data obtained from Andy Beet. It was delivered as containing only finfish, I have removed freshwater species and blue crabs. It should largely reflect marine finfish species at this point.
-
 
 
 ```{r}
