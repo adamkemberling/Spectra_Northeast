@@ -842,12 +842,6 @@ From exploratory analyses we know that spiny dogfish are a large fraction of the
 By excluding spiny dogfish from the community the 2000's era increase in 90th percentile size for the Gulf of Maine goes away. Possibly giving support to sentiments that spiny dogfish are occupying the body-size-niche perviously held by larger gadids.
 
 
-The seasonality in the 90th percentile shift with and w/o spiny dogfish does not speak to migration as much as I thought it might originally. 
-
-It is capturing a more general absence of dogfish (and other larger individuals) in MAB during the fall. The departure of larger individuals from the area seasonally is possibly related to the breakdown of the Mid-Atlantic Cold pool, which breaks down over the summer.
-
-
-
 ```{r}
 # remake the above plot as seasonal
 
@@ -925,6 +919,13 @@ spiny_season_qs <- bind_rows(
 
 ```
 
+:::panel-tabset
+
+### Seasonal Size Percentiles
+
+The seasonality in the 90th percentile shift with and w/o spiny dogfish does not speak to migration as much as I thought it might originally. 
+
+It is capturing a more general absence of dogfish (and other larger individuals) in MAB during the fall. The departure of larger individuals from the area seasonally is possibly related to the breakdown of the Mid-Atlantic Cold pool, which breaks down over the summer.
 
 ```{r}
 #| label: seasonal dogfish removal
@@ -982,8 +983,12 @@ q90_df_p <-  ggplot() +
 q90_df_p
 ```
 
+The above figure shows that the community distribution without dogfish widens in the spring and narrows in the fall.
 
-It may still be worth noting just how much of the community biomass is held in spiny dogfish, but the above figure shows that the community distribution without dogfish widens in the spring and narrows in the fall.
+### Percent Dogfish
+
+
+It is maybe worth noting just how much of the community biomass is held in spiny dogfish, which is frequently above 50%.
 
 ```{r}
 #| label: dogfish percentage biomass
@@ -1025,7 +1030,7 @@ ggplot(aes(est_year, fraction)) +
        fill = "Season")
 ```
 
-
+:::
 
 
 
