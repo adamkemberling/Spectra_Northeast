@@ -492,11 +492,11 @@ Percentile location of the size distribution are determined using `DescTools::Qu
 
 The following figure shows changes in seasonal large and small fish indices within each region. The large and small size thresholds are set for each species independently using their length distributions as in the table above.
 
-The axes on these are: $$LFI = \frac{\sum({N_{ijsk}
+The axes on these are: $$LFI = \frac{\sum({N_{tjsk}
 > size~threshold_k})}
-{\sum{N_{ijs}}}$$ 
+{\sum{N_{tjs}}}$$ 
 
-for each: $year_i$, $region_j$, $season_s$ & $species_k$.
+for each: $year_t$, $region_j$, $season_s$ & $species_k$.
 
 ```{r}
 
@@ -1104,7 +1104,7 @@ ggplot(btemp_ccf, aes(lag, acf)) +
   labs(
     title = "Bottom Temperature CCF",
     x = "Bottom Temperature Lag (years)", 
-    y = "Correlation (CCF)", )
+    y = "ACF", )
 ```
 
 
@@ -1158,7 +1158,88 @@ ggplot(landings_ccf, aes(lag, acf)) +
   labs(
     title = "Total Landings CCF",
     x = "Total Landings Lag (years)", 
-    y = "Correlation (CCF)", )
+    y = "ACF", )
+```
+
+
+## Spectra Slope ACF
+
+Just as an important check, what is the temporal autocorrelation structure in spectra slopes? 
+
+There is a significant positive correlation at 1 year lead in 4/10 regional timeseries. I think the nature of the data is enough to justify adding the AR1() error structure, and this is confirms its inclusion over a year random effect.
+
+There is also six-year lead in 3 of them which is curious, and could be explored as to what is going on there with a 6-year periodicity. 
+
+Then lastly the Fall Gulf of Maine spectra has significant correlations up to three years out. 
+
+
+
+I am of two minds about this:
+
+1. This could be a clue to some state change, as increased autocorrelation is sometimes used in the literature as a signal of hysteresis.
+
+2. OR This could be evidence that Gulf of Maine's fall community is the exception, and is the ONLY community sampled sufficiently/consistently. 
+
+We are in a sense (hopefully) conducting a repeated measure of some community in time, and so there should hopefully be some sort of autocorrelation. The absence of autocorrelation in these communities could
+
+```{r}
+
+
+# Pull out acf stuff
+spectra_acf <- wigley_bmspectra_model_df %>% 
+  unite("regseas", area, season, sep = "XX") %>% 
+  split(.$regseas) %>% 
+  map_dfr(function(x){
+    # drop NA
+    x <- arrange(x, est_year) %>% drop_na(b)
+    
+    # Do ACF
+    x_acf <- acf(x$b, plot = F, lag.max = 10)
+    
+    # Get the signif:
+    # https://www.squaregoldfish.co.uk/programming/r_acf_significance.md/
+    # Not 100% sure n is the same for ccf as it is for acf, but...
+    significance_level <- qnorm((1 + 0.95)/2)/sqrt(sum(!is.na(x$b)))
+    
+    data.frame(
+      "acf"    = x_acf$acf,
+      "lag"    = x_acf$lag,
+      "sigpos" = significance_level,
+      "signeg" = significance_level*-1
+    )
+    
+  }, .id = "regseas") %>% 
+  separate("regseas", into = c("area", "season"), sep = "XX")  %>% 
+  mutate(
+    # Flag when it crosses threshold
+    sig_flag = ifelse(acf < signeg | acf > sigpos, T, F),
+    # Set Factor Levels
+    area = factor(area, levels = area_levels_long_all),
+    season = factor(season, levels = c("Spring", "Fall"))) 
+
+
+
+# Plot things
+ggplot(spectra_acf, aes(lag, acf)) +
+  geom_hline(yintercept = 0, color = "gray25", linewidth = 1) +
+  geom_vline(xintercept = 0, color = "gray25", linewidth = 1) +
+  geom_ribbon(
+    aes(ymin = signeg, ymax = sigpos), 
+        alpha = 0.2, linetype = 2, fill = "lightgray",
+    color = "gray65") +
+  geom_col(alpha = 0.65) +
+  geom_col(
+    data = filter(spectra_acf, sig_flag), color = "black") +
+  scale_x_continuous(
+    limits = c(-1,10),
+    breaks = c(1:9),
+    expand = expansion(add = c(0,0))) +
+  facet_grid(area~season) +
+  labs(
+    title = "Spectra Slope ACF",
+    x = "Lag (years)", 
+    y = "ACF", )
+
 ```
 
 
@@ -1185,6 +1266,7 @@ From the landings CCF I get the sense that total landings aren't a major driver 
 # Part 2: Relationships to External Factors
 
 The aim of this section is to provide context and potentially attribution/correlations that may help explain trends/changes observed in the above section.
+
 
 
 # Temperature and Size Structure
@@ -1234,9 +1316,7 @@ wigley_bmspectra_model_df %>%
 ```
 
 
-
-
-### Understanding Seasonality
+## Importance of Seasonality
 
 The extent that the regional spectra trends follow a negative linear relationship to increasing temperature is largely due to seasonal differences. 
 
@@ -1245,7 +1325,7 @@ We know that individuals may migrate and/or occupy different habitats seasonally
 Either way, **seasonal differences are large and they justify treating survey seasons as separate groups with independent trends.**
 
 
-### Local Bottom Temperature Anomalies Model
+### Anomalies Model
 
 I wanted to try and avoid conflating that a relationship between spectra and bottom temperature means that "warming" has altered the size spectra. 
 The observation that body size distribution broadly follows some temperature relationship is a confirmation of these broadly observed rules, but I would argue it does not convey that warming has shifted a local climate in some direction. 
@@ -1261,7 +1341,19 @@ This is the model I would suggest gets the most at "Warming" impacting regional 
 **Error structure:** AR1 autocorrelative errors
 
 By using the season * region interaction groups, we can characterize the typical bottom temperature for each combinations using the long-term seasonal average, and quantify warming using departures from those long-term averages.
+
+The model looks like this as an equation (90% sure), where $\alpha$ is the intercept, $\beta x_{tjs}$ is our coefficient for a continuous independent variable (ex. bottom temperature), and $e_{tjs$` is our error:
+
+$$y_{tjs} = \alpha + \beta x_{tjs} + e_{tjs}$$
+and our error depends on the previous timestep:
  
+$$e_{tjs} = \phi e_{t-1,js} + w_{tjs}$$
+With $w_{tjs}$ adding noise.
+
+$$w_{tjs} \sim N(0, \sigma^2) $$
+All of this happening for each $year_t$ within $region_j$ & $season_s$.
+
+I need to consult the Zuur paper about equations in ecology again, but this seems close.
 
 ```{r}
 
@@ -1359,7 +1451,7 @@ Based on this model I would say there is evidence of a warming effect in:
  4. SNE-Fall   
 
 
-### Actual Bottom Temperature Model
+### Bottom Temperature Model
 
 We were originally using absolute temperatures, which are scaled, and I was curious with the AR error structure how different this would be than the anomaly model.
 
@@ -1478,6 +1570,8 @@ In light of that knowledge, there must be some compensatory mechanisms happening
 
 
 ### Region * Season Pairwise Posthoc
+
+The following figures and tables compare marginal means and post-hoc comparisons for the model above using bottom temperature.
 
 What are the differences across spatial scales and seasonally?
 
