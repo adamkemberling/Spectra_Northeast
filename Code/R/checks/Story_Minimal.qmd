@@ -1242,6 +1242,33 @@ ggplot(spectra_acf, aes(lag, acf)) +
 
 ```
 
+### Spring and Fall Correlated ??
+
+I can't believe I never checked this, but are spring and fall communities correlated within an area? My sense is that they should be, and it might be meaningful to point out if they are not.
+
+Only one region (GOM) has "memory" of the community six months before, and has a significant (but small) correlation between spring and fall communities.
+
+Taken with the ACF info, there is consistency that the Gulf of Maine spectra exhibits more sign of temporal autocorrelation and the spectra between season are correlated.
+
+This does however add doubt to how useful these other indices are.
+
+
+```{r}
+wigley_bmspectra_model_df %>% 
+  filter(est_year < 2010) %>% 
+  select(est_year, area, season, b) %>% 
+  pivot_wider(names_from = "season", values_from = "b") %>% 
+  ggplot(aes(Spring, Fall)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  ggpmisc::stat_poly_eq(ggpmisc::use_label(c("P", "R2")), formula = y ~ x) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.5))) +
+  facet_wrap(~area, ncol = 2, scales = "free") +
+  labs(title = "Spring-Fall Spectra Correlation")
+  
+  
+```
+
 
 
 
@@ -2043,6 +2070,7 @@ cpool %>%
 
 
 ```
+
 
 
 ---
