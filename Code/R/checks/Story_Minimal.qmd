@@ -1250,7 +1250,7 @@ Only one region (GOM) has "memory" of the community six months before, and has a
 
 Taken with the ACF info, there is consistency that the Gulf of Maine spectra exhibits more sign of temporal autocorrelation and the spectra between season are correlated.
 
-This does however add doubt to how useful these other indices are.
+This does however add doubt to how useful these other indices are, in the sense that they may not be capturing change of a community over time.
 
 
 ```{r}
