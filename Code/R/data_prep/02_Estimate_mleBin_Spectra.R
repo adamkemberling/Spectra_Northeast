@@ -287,9 +287,87 @@ write_csv(length_binspectra_shelf, here::here("Data/processed/shelfwide_finfish_
 write_csv(bodymass_binspectra_wigley_shelf, here::here("Data/processed/shelfwide_wigley_species_bodymass_spectra.csv"))
 
 
+
+
+#### Setting Minimum Sizes at Abundance Peaks  ####
+
+# In the quarto doc here:Chasing_Peasks.qmd
+# Followed recommendations to set minimum size for distribution
+# based on location of normalized abundance peak
+
+# This is the key for the peaks and the minimum size to use:
+
+
+# This is code to run all of those:
+
+
+# Make the key
+min_size_key <- read_csv(here::here("Data/processed/wigley_species_l2peaks_key.csv"))
+
+
+
+# # Join the data back to the original
+# wigley_in_new <- wigley_in %>%
+#   mutate(area = "Northeast Shelf") %>%
+#   bind_rows(wigley_in) %>%
+#   left_join(min_size_key, join_by("est_year", "area", "season")) %>%
+#   filter(wmin_g >= min_cutoff_g)
+# 
+# 
+# 
+# # Re-Run the MLE method to get new data
+# 
+# # and again for 16g to 50kg
+# peak_chase_results <- group_binspecies_spectra(
+#     ss_input       = wigley_in_new,
+#     grouping_vars  = c("est_year", "season", "survey_area"),
+#     abundance_vals = "numlen_adj",
+#     length_vals    = "length_cm",
+#     use_weight     = TRUE,
+#     isd_xmin       = NULL,
+#     global_min     = FALSE,
+#     isd_xmax       = NULL,
+#     global_max     = FALSE,
+#     bin_width      = 1,
+#     vdiff          = 2) %>% 
+#   mutate(est_year = as.numeric(est_year)) %>% 
+#   left_join(area_df)
+# 
+# 
+# shelf_peak_results  <- group_binspecies_spectra(
+#     ss_input       = filter(wigley_in_new, area == "Northeast Shelf"),
+#     grouping_vars  = c("est_year", "season"),
+#     abundance_vals = "numlen_adj",
+#     length_vals    = "length_cm",
+#     use_weight     = TRUE,
+#     isd_xmin       = NULL,
+#     global_min     = FALSE,
+#     isd_xmax       = NULL,
+#     global_max     = FALSE,
+#     bin_width      = 1,
+#     vdiff          = 2) %>% 
+#   mutate(
+#     est_year = as.numeric(est_year),
+#     area = "Northeast Shelf") %>% 
+#   left_join(area_df)
+# 
+# 
+# # Join those together for one file
+# moving_peak_spectra <- bind_rows(peak_chase_results, shelf_peak_results)
+
+
+# # Save them
+# write_csv(moving_peak_spectra, here::here("Data/processed/wigley_species_l2peaks_bmspectra.csv"))
+
+
+
+
+
+
+
+
 #####  New Minimum Size Cutoffs?  ####
 
-# Can seasonality in shelfwide spectra be explained by recruitment swings?
 
 
 # Full shelf 10g cutoff
@@ -332,48 +410,4 @@ bodymass_binspectra_wigley_shelf_100 %>%
 
 
 
-
-# #### Debugging  ####
-# 
-# 
-# # Why are there so many precise -1's? - that's an issue, vecdiff?
-# weird_fits <- bodymass_binspectra_wigley %>% 
-#   filter(between(b, -1.005, -0.9995)) %>% 
-#   distinct(est_year, survey_area, season) %>% 
-#   mutate(est_year = as.numeric(est_year))
-# 
-# 
-# # Look at the size distributions for those years
-# weird_inputs <- trawl_wigley %>% inner_join(weird_fits)
-# fine_inputs <- trawl_wigley %>% anti_join(weird_fits)
-# 
-# 
-# 
-# weird_params <- weird_inputs %>% 
-#   unite("group_var", est_year, survey_area, season, sep = "-") %>% 
-#   split(.$group_var) %>% 
-#   map_dfr(function(x){
-#     data.frame(
-#       min_weight = min(x$wmin_g),
-#       max_weight = max(x$wmin_g),
-#       n = sum(x$numlen_adj))
-#     }, .id = "group_var") %>% 
-#   separate(
-#     col = "group_var", 
-#     into = c("est_year", "survey_area", "season"), sep = "-") %>% 
-#   mutate(est_year = as.numeric(est_year)) %>% 
-#   pivot_longer(cols = c(min_weight, max_weight, n), names_to = "var", values_to = "val")
-# 
-# 
-# fine_params <- fine_inputs %>% 
-#   unite("group_var", est_year, survey_area, season, sep = "-") %>% 
-#   split(.$group_var) %>% 
-#   map_dfr(function(x){
-#     data.frame(
-#       min_weight = min(x$wmin_g),
-#       max_weight = max(x$wmin_g),
-#       n = sum(x$numlen_adj))
-#   }, .id = "group_var") %>% 
-#   separate(col = "group_var", into = c("est_year", "survey_area", "season"), sep = "-") %>% 
-#   mutate(est_year = as.numeric(est_year)) %>% 
-#   pivot_longer(cols = c(min_weight, max_weight, n), names_to = "var", values_to = "val")
+\

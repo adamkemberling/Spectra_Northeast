@@ -30,6 +30,7 @@ library(gt)
 library(sizeSpectra)
 library(gganimate)
 library(glue)
+library(merTools)
 conflicted::conflict_prefer("select", "dplyr")
 conflicted::conflict_prefer("filter", "dplyr")
 
@@ -414,6 +415,9 @@ wig_l2_aggs <- wig_l2 %>%
 
 
 
+
+
+
 # # ggplot with animation
 # animated_plot <- ggplot(wig_l2_aggs) +
 #   geom_col(
@@ -429,7 +433,7 @@ wig_l2_aggs <- wig_l2 %>%
 #     labels = label_log(base = 2),
 #     breaks = 2^seq(-10,16, 2)) +
 #   scale_x_continuous(
-#     labels = label_math(expr = 10^.x),
+#     labels = label_math(expr = 2^.x),
 #     breaks = c(0:15)) +
 #   scale_fill_gmri() +
 #   scale_color_manual(values = c("transparent", "black")) +
@@ -444,6 +448,8 @@ wig_l2_aggs <- wig_l2 %>%
 #     transition_length = 1,
 #     state_length = 5) +
 #   ease_aes('linear')  # Smooth transition
+# 
+# 
 # 
 # # Animate and save
 # animate(animated_plot, nframes = 300, fps = 10, width = 1000, height = 800)
@@ -496,9 +502,15 @@ viewof yearSlider = Inputs.range(
 viewof areaSelect = Inputs.select(["Northeast Shelf", "Gulf of Maine", "Georges Bank", "Southern New England", "Mid-Atlantic Bight"], { label: "Area" })
 
 
-// Filtering Function
-filteredData = transpose(data).filter(function(d) {
-  return yearSlider == d.est_year && d.area === areaSelect;
+// // Filtering Function
+// filteredData = transpose(data).filter(function(d) {
+//   return yearSlider == d.est_year && d.area === areaSelect;
+// })
+filteredSpring = transpose(data).filter(function(d) {
+  return yearSlider == d.est_year && d.area === areaSelect && d.season === "Spring";
+})
+filteredFall = transpose(data).filter(function(d) {
+  return yearSlider == d.est_year && d.area === areaSelect && d.season === "Fall";
 })
 ```
 
@@ -512,16 +524,16 @@ filteredData = transpose(data).filter(function(d) {
 // Plot with Facets
 Plot.plot({
   facet: {
-    data: filteredData,
+    data: filteredSpring,
     x: d => d.area, // Columns: area
     y: d => d.season  // Rows: season
     //y: { field: "season", domain: ["Spring", "Fall"] }  // Custom row order - doesn't work
   },
   marks: [
-    Plot.barY(filteredData, { 
+    Plot.barY(filteredSpring, { 
     x: "left_lim", 
     y: "normalized_abund",
-    fill: "season",
+    fill: "#00608a",
     //stroke: "season",
     stroke: d => d.is_tallest ? "black" : "none", // Change stroke color for highlighted bars
     strokeWidth: d => d.is_tallest ? 4 : 0 // Thicker stroke for highlighted bars
@@ -544,15 +556,351 @@ Plot.plot({
 ```
 
 
-### Peak Locations
+```{ojs}
+//| fig.align: center
+//| fig.height: 10
+//| fig.width: 10
 
-Without over-doing the peak locations for multi-modal situations, here are the peak locations over time, and their frequencies for each group:
 
-:::panel-tabset
+// Plot with Facets
+Plot.plot({
+  facet: {
+    data: filteredFall,
+    x: d => d.area, // Columns: area
+    y: d => d.season  // Rows: season
+    //y: { field: "season", domain: ["Spring", "Fall"] }  // Custom row order - doesn't work
+  },
+  marks: [
+    Plot.barY(filteredFall, { 
+    x: "left_lim", 
+    y: "normalized_abund",
+    fill: "#ea4f12",
+    //stroke: "season",
+    stroke: d => d.is_tallest ? "black" : "none", // Change stroke color for highlighted bars
+    strokeWidth: d => d.is_tallest ? 4 : 0 // Thicker stroke for highlighted bars
+    })
+  ],
+  x: {
+    label: "Body Mass (g)",
+    tickFormat: d => `2^${d}` // Format labels as powers of 2
+  },
+  y: {
+   label: "Abundance",
+   type: "symlog",
+   base: 2
+  },
+  style: {
+    facetPadding: 5
+  }
+})
 
-### Peak Location Timeseries
+```
+
 
 
 ### Peak Location Frequencies
 
-:::
+Without over-doing the peak locations for multi-modal situations, here are the peak locations and their frequencies for each group:
+
+
+
+```{r}
+
+wig_l2_aggs %>% 
+  filter(is_tallest) %>% 
+  mutate(est_year = as.numeric(est_year)) %>% 
+  ggplot(aes(x = left_lim, fill = season)) +
+  geom_histogram(alpha = 0.7, position = "dodge", bins = 9) +
+  scale_fill_gmri() +
+  scale_x_continuous(
+    labels = label_math(expr = 2^.x),
+    breaks = c(0:15)) +
+    facet_grid(area~season) +
+  labs(
+    x = "Minimum Body-Size (g)", 
+    y = "Year Count",
+    title = "Spectra Peak Location Frequency")
+```
+
+
+
+## Applying the Minimums
+
+From this dataframe we can strip out the key group information and the minimum size as a lookup table. This can be joined and used as a filter as a preparatory step before fitting the group spectra.
+
+
+```{r}
+#| label: make min size key
+#| eval: false
+
+# # Make the key
+# min_size_key <- wig_l2_aggs  %>%
+#   filter(is_tallest) %>%
+#   distinct(area, season,  est_year, left_lim, is_tallest) %>%
+#   mutate(min_cutoff_g = 2^left_lim) %>%
+#   select(-left_lim) %>%
+#   mutate(est_year = as.numeric(est_year))
+# 
+# 
+# 
+# # Join the data back to the original
+# wigley_in_new <- wigley_in %>%
+#   mutate(area = "Northeast Shelf") %>%
+#   bind_rows(wigley_in) %>%
+#   left_join(min_size_key, join_by("est_year", "area", "season")) %>%
+#   filter(wmin_g >= min_cutoff_g)
+# 
+# 
+# 
+# # Re-Run the MLE method to get new data
+# 
+# # and again for 16g to 50kg
+# peak_chase_results <- group_binspecies_spectra(
+#     ss_input       = wigley_in_new,
+#     grouping_vars  = c("est_year", "season", "survey_area"),
+#     abundance_vals = "numlen_adj",
+#     length_vals    = "length_cm",
+#     use_weight     = TRUE,
+#     isd_xmin       = NULL,
+#     global_min     = FALSE,
+#     isd_xmax       = NULL,
+#     global_max     = FALSE,
+#     bin_width      = 1,
+#     vdiff          = 2) %>% 
+#   mutate(est_year = as.numeric(est_year)) %>% 
+#   left_join(area_df)
+# 
+# 
+# shelf_peak_results  <- group_binspecies_spectra(
+#     ss_input       = filter(wigley_in_new, area == "Northeast Shelf"),
+#     grouping_vars  = c("est_year", "season"),
+#     abundance_vals = "numlen_adj",
+#     length_vals    = "length_cm",
+#     use_weight     = TRUE,
+#     isd_xmin       = NULL,
+#     global_min     = FALSE,
+#     isd_xmax       = NULL,
+#     global_max     = FALSE,
+#     bin_width      = 1,
+#     vdiff          = 2) %>% 
+#   mutate(
+#     est_year = as.numeric(est_year),
+#     area = "Northeast Shelf") %>% 
+#   left_join(area_df)
+# 
+# 
+# # Join those together for one file
+# moving_peak_spectra <- bind_rows(peak_chase_results, shelf_peak_results)
+
+
+# # Save them
+# write_csv(min_size_key, here::here("Data/processed/wigley_species_l2peaks_key.csv"))
+# write_csv(moving_peak_spectra, here::here("Data/processed/wigley_species_l2peaks_bmspectra.csv"))
+```
+
+## Plot New Results
+
+
+```{r}
+# Re-Load them
+min_size_key <- read_csv(here::here("Data/processed/wigley_species_l2peaks_key.csv"))
+moving_peak_spectra <- read_csv(here::here("Data/processed/wigley_species_l2peaks_bmspectra.csv"))
+
+```
+
+
+```{r}
+
+# Function to get the Predictions
+# Flag effect fits that are non-significant  ###
+get_preds_and_trendsignif <- function(mod_x){
+  modx_preds <- as.data.frame(
+    # Model predictions
+    ggpredict(
+      mod_x, 
+      terms = ~ est_year * area * season) ) %>% 
+    mutate(
+      area = factor(group, levels = area_levels_long_all),
+      season = factor(facet, levels = c("Spring", "Fall")))
+  
+    # Just survey area and year
+    modx_emtrend <- emtrends(
+      object = mod_x,
+      specs =  ~ area*season,
+      var = "est_year") %>% 
+      as_tibble() %>% 
+      mutate(
+        zero = 0,
+        non_zero = if_else(between(zero, lower.CL, upper.CL), F, T))
+  
+    # Preds with signif
+    modx_preds %>% left_join(select(modx_emtrend, area, season, non_zero))
+  
+}
+```
+
+
+
+```{r}
+
+# Model linear trends in time
+library(nlme)
+library(ggeffects)
+library(emmeans)
+library(tidyquant)
+
+moving_peak_spectra <- moving_peak_spectra %>% 
+  mutate(
+    area = factor(area, levels = area_levels_long_all),
+    est_year = as.numeric(est_year))
+spectra_trend_mod <- gls(
+  b ~ scale(est_year) * area * season,
+  correlation = corAR1(form = ~ est_year | area/season),
+  data = moving_peak_spectra)
+
+#check_model(spectra_trend_mod)
+# plot(check_collinearity(spectra_trend_mod))
+
+
+# Get the predictions and flag whether they are significant
+bmspectra_trend_predictions <- get_preds_and_trendsignif(spectra_trend_mod) %>% 
+  mutate(metric = "bodymass_spectra",
+         area = factor(area, levels = area_levels_long_all))
+
+
+# Make the plot
+bmspectra_trend_p <- ggplot() +
+   geom_ribbon(
+    data = filter(bmspectra_trend_predictions, non_zero == TRUE),
+    aes(x, ymin = conf.low, ymax = conf.high, fill = season),
+    linewidth = 1, alpha = 0.35) +
+  geom_point(
+    data = moving_peak_spectra,
+    aes(est_year, b, color = season),
+    size = 0.8, alpha = 0.5) +
+  geom_ma(
+    data = moving_peak_spectra,
+    aes(est_year, b, color = season, linetype = "5-Year Moving Average"), 
+    n = 5, ma_fun = SMA, key_glyph = "timeseries" ) +
+  geom_line(
+    data = filter(bmspectra_trend_predictions, non_zero == TRUE),
+    aes(x, predicted, color = season, linetype = "Significant Trend"),
+    linewidth = 1, alpha = 1) +
+  scale_fill_gmri() +
+  scale_color_gmri() +
+  facet_grid(area ~ ., scales = "free") +
+  labs(
+    x = "Year",
+    y = "Exponent of Mass Size Spectra",
+    linetype = "Trend",
+    color = "Season",
+    fill = "Season")
+ 
+# Show plot
+bmspectra_trend_p
+```
+
+Things to check in the morning:
+ - autocorrelative structure
+ - are seasons correlated now
+ - what is the relationship of steepness to minimum weght cutoff? 
+ 
+ 
+### Autocorrelation Check
+
+These are annual chek-ins of the multi-species, multi-cohort community size structure in an area. There should be some memory of the previous six months and/or the previous year.
+
+```{r}
+
+
+# Pull out acf stuff
+spectra_acf <- moving_peak_spectra %>% 
+  unite("regseas", area, season, sep = "XX") %>% 
+  split(.$regseas) %>% 
+  map_dfr(function(x){
+    # drop NA
+    x <- arrange(x, est_year) %>% drop_na(b)
+    
+    # Do ACF
+    x_acf <- acf(x$b, plot = F, lag.max = 10)
+    
+    # Get the signif:
+    # https://www.squaregoldfish.co.uk/programming/r_acf_significance.md/
+    # Not 100% sure n is the same for ccf as it is for acf, but...
+    significance_level <- qnorm((1 + 0.95)/2)/sqrt(sum(!is.na(x$b)))
+    
+    data.frame(
+      "acf"    = x_acf$acf,
+      "lag"    = x_acf$lag,
+      "sigpos" = significance_level,
+      "signeg" = significance_level*-1
+    )
+    
+  }, .id = "regseas") %>% 
+  separate("regseas", into = c("area", "season"), sep = "XX")  %>% 
+  mutate(
+    # Flag when it crosses threshold
+    sig_flag = ifelse(acf < signeg | acf > sigpos, T, F),
+    # Set Factor Levels
+    area = factor(area, levels = area_levels_long_all),
+    season = factor(season, levels = c("Spring", "Fall"))) 
+
+
+
+# Plot things
+ggplot(spectra_acf, aes(lag, acf)) +
+  geom_hline(yintercept = 0, color = "gray25", linewidth = 1) +
+  geom_vline(xintercept = 0, color = "gray25", linewidth = 1) +
+  geom_ribbon(
+    aes(ymin = signeg, ymax = sigpos), 
+        alpha = 0.2, linetype = 2, fill = "lightgray",
+    color = "gray65") +
+  geom_col(alpha = 0.65) +
+  geom_col(
+    data = filter(spectra_acf, sig_flag), color = "black") +
+  scale_x_continuous(
+    limits = c(-1,10),
+    breaks = c(1:9),
+    expand = expansion(add = c(0,0))) +
+  facet_grid(area~season) +
+  labs(
+    title = "Spectra Slope ACF",
+    x = "Lag (years)", 
+    y = "ACF", )
+```
+
+Based on the auto-corrrelation function results we have a similar outlook on the annual autocorrelations.
+
+
+```{r}
+moving_peak_spectra %>% 
+  select(est_year, area, season, b) %>% 
+  pivot_wider(names_from = "season", values_from = "b") %>% 
+  ggplot(aes(Spring, Fall)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  ggpmisc::stat_poly_eq(ggpmisc::use_label(c("P", "R2")), formula = y ~ x) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.5))) +
+  facet_wrap(~area, ncol = 2, scales = "free") +
+  labs(title = "Spring-Fall Slope Correlations")
+```
+
+Spring and fall communities from the same area remain uncorrelated. This is surprising to me as noise from large cohorts of smaller individuals.
+
+
+```{r}
+moving_peak_spectra %>% 
+  ggplot(aes(xmin_actual, b)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  ggpmisc::stat_poly_eq(ggpmisc::use_label(c("P", "R2")), formula = y ~ x) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.5))) +
+  scale_x_continuous(trans = transform_log(base = 2), labels = label_log(base = 2)) +
+  facet_wrap(~area, ncol = 2, scales = "free") +
+  labs(title = "Effect of Shifting pareto left-bound")
+```
+
+
+### Affinities to Large External Factors
+
+Here I could explore whether the relationships to bottom temperature or 

@@ -1255,7 +1255,6 @@ This does however add doubt to how useful these other indices are, in the sense 
 
 ```{r}
 wigley_bmspectra_model_df %>% 
-  filter(est_year < 2010) %>% 
   select(est_year, area, season, b) %>% 
   pivot_wider(names_from = "season", values_from = "b") %>% 
   ggplot(aes(Spring, Fall)) +
