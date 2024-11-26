@@ -737,6 +737,7 @@ get_preds_and_trendsignif <- function(mod_x){
     modx_preds %>% left_join(select(modx_emtrend, area, season, non_zero))
   
 }
+
 ```
 
 
@@ -768,6 +769,7 @@ bmspectra_trend_predictions <- get_preds_and_trendsignif(spectra_trend_mod) %>%
          area = factor(area, levels = area_levels_long_all))
 
 
+
 # Make the plot
 bmspectra_trend_p <- ggplot() +
    geom_ribbon(
@@ -790,6 +792,7 @@ bmspectra_trend_p <- ggplot() +
   scale_color_gmri() +
   facet_grid(area ~ ., scales = "free") +
   labs(
+    title = "Trends in Spectra w/ Shifting wmin",
     x = "Year",
     y = "Exponent of Mass Size Spectra",
     linetype = "Trend",
@@ -811,7 +814,6 @@ Things to check in the morning:
 These are annual chek-ins of the multi-species, multi-cohort community size structure in an area. There should be some memory of the previous six months and/or the previous year.
 
 ```{r}
-
 
 # Pull out acf stuff
 spectra_acf <- moving_peak_spectra %>% 
@@ -867,6 +869,7 @@ ggplot(spectra_acf, aes(lag, acf)) +
     title = "Spectra Slope ACF",
     x = "Lag (years)", 
     y = "ACF", )
+
 ```
 
 Based on the auto-corrrelation function results we have a similar outlook on the annual autocorrelations.
@@ -885,7 +888,7 @@ moving_peak_spectra %>%
   labs(title = "Spring-Fall Slope Correlations")
 ```
 
-Spring and fall communities from the same area remain uncorrelated. This is surprising to me as noise from large cohorts of smaller individuals.
+Spring and fall communities from the same area remain uncorrelated. This is surprising to me as the noise coming from the presence/absence of cohorts of smaller individuals should be reduced.
 
 
 ```{r}
@@ -897,10 +900,344 @@ moving_peak_spectra %>%
   scale_y_continuous(expand = expansion(mult = c(0, 0.5))) +
   scale_x_continuous(trans = transform_log(base = 2), labels = label_log(base = 2)) +
   facet_wrap(~area, ncol = 2, scales = "free") +
-  labs(title = "Effect of Shifting pareto left-bound")
+  labs(title = "Bias from Shifting the Distribution's wmin")
 ```
 
 
 ### Affinities to Large External Factors
 
-Here I could explore whether the relationships to bottom temperature or 
+Here I could explore whether the relationships to bottom temperature or landings, but I remain unconvinced this is the right path forward.
+
+
+```{r}
+# From Andy Beet
+landings_annual <- read_csv(here::here("Data/processed/BEET_GARFO_regional_finfish_landings.csv")) %>% 
+  rename(area = survey_area,
+         est_year = year) %>% 
+  left_join(area_df) %>% 
+  select(survey_area, area, est_year, total_weight_lb = total_live_lb)
+
+# Get shelf totals
+landings_annual <- landings_annual %>% 
+  group_by(est_year) %>% 
+  summarise(total_weight_lb = sum(total_weight_lb, na.rm = T)) %>%
+  mutate(
+    survey_area = "Northeast Shelf",
+    area = "Northeast Shelf") %>% 
+  bind_rows(landings_annual)
+  
+
+# Seasonal Bottom Temp
+bot_temps <- read_csv(here::here("Data/processed", "trawl_region_seasonal_bottom_temps.csv")) %>% 
+  rename(area = survey_area,
+         est_year = year) %>% 
+  left_join(area_df) %>% 
+  select(survey_area, area, est_year, season, bot_temp, overall_avg_btemp, bot_temp_anom)
+
+
+
+# Join these
+peak_chase_model_df <- left_join(moving_peak_spectra, bot_temps) %>% left_join(landings_annual) %>% 
+  mutate(area = factor(area, levels = area_levels_long_all))
+```
+
+
+
+
+
+
+```{r}
+#| label: landings and temp model
+
+
+# Just drop the random effect part for now
+full_model_ar <- nlme::gls(
+  # Model
+  model = b ~ area * season * scale(bot_temp) + area * scale(log(total_weight_lb)), 
+  
+  # Data
+  data = peak_chase_model_df %>%
+    drop_na(total_weight_lb) %>% 
+    dplyr::filter(area != "Northeast Shelf"),
+  
+  # Autocorrelation
+  correlation = corAR1(form = ~ est_year | area/season))
+
+# Check the model
+library(performance)
+# check_model(full_model_ar)
+
+
+# # Collinearity without interactions
+# plot(
+#   check_collinearity(
+#     nlme::gls(
+#         b ~ area + season + scale(bot_temp) +  scale(log_land),
+#         data = drop_na(wigley_bmspectra_model_df, total_weight_lb) %>%
+#                  filter(area != "Northeast Shelf") %>% 
+#           mutate(log_land = log(total_weight_lb)),
+#         correlation = corAR1(form = ~ est_year | survey_area/season)
+#       )
+#     )
+#   )
+
+
+# # confidence intervals on phi
+# intervals(full_model_ar)$corStruct
+
+```
+
+
+
+```{r}
+#| label: temperature marginal effects
+
+
+
+# Clean up the plot:
+# Plot the predictions over data
+temp_preds <- as.data.frame(
+  ggpredict(
+    full_model_ar, 
+    terms = ~ bot_temp * area * season))   %>% 
+  mutate(
+    area = factor(group, levels = area_levels_long_all),
+    season = factor(facet, levels = c("Spring", "Fall")))
+
+
+
+#### Trend Posthoc  ####
+
+# Flag effect fits that are non-significant  ###
+temp_emtrend <- emtrends(
+  object = full_model_ar,
+  specs =  ~ area * season,
+  mode = "appx-satterthwaite",
+  var = "bot_temp") %>%
+  as_tibble() %>%
+  mutate(
+    zero = 0,
+    non_zero = if_else(between(zero, lower.CL, upper.CL), F, T))
+
+
+# Limit temperature plotting range
+actual_range <- peak_chase_model_df %>%
+  filter(area != "Northeast Shelf") %>% 
+  group_by(season, area) %>%
+  summarise(
+    min_temp = min(bot_temp)-2,
+    max_temp = max(bot_temp)+2,
+    .groups = "drop")
+
+
+
+# Plot over observed data
+local_btemp <- temp_preds %>% 
+  left_join(actual_range) %>%
+  filter((x < min_temp) == F,
+         (x > max_temp) == F) %>%
+  left_join(select(temp_emtrend, area, season, non_zero)) %>%
+  filter(non_zero) %>%
+  ggplot() +
+  geom_ribbon(aes(x, ymin = conf.low, ymax = conf.high, group = season), alpha = 0.1) +
+  geom_line(
+    aes(x, predicted, color = season), 
+    linewidth = 1) +
+  geom_point(
+    data = filter(peak_chase_model_df, area!= "Northeast Shelf"),
+    aes(bot_temp, b, color = season),
+    alpha = 0.4,
+    size = 1) +
+  facet_grid(area~., scales = "free", labeller = label_wrap_gen(width = 8)) +
+  scale_color_gmri() +
+  scale_x_continuous(labels = label_number(suffix = deg_c)) +
+  labs(y = "Mass distribution Exponent",
+       x = "Local Seasonal Bottom Temperature Anomaly")
+local_btemp
+```
+
+
+```{r}
+#| label: landings marginal effect plot
+
+
+# Clean up the plot:
+# Plot the predictions over data
+f_preds <- as.data.frame(
+  ggpredict(
+    full_model_ar, 
+    terms = ~ total_weight_lb * area * season))   %>% 
+  mutate(
+    area = factor(group, levels = area_levels_long_all),
+    season = factor(facet, levels = c("Spring", "Fall")))
+
+
+
+#### Trend Posthoc  ####
+
+# Flag effect fits that are non-significant  ###
+f_emtrend <- emtrends(
+  object = full_model_ar,
+  specs =  ~ area,
+  var = "total_weight_lb",
+  mode = "appx-satterthwaite"
+  ) %>%
+  as_tibble() %>%
+  mutate(
+    zero = 0,
+    non_zero = if_else(between(zero, lower.CL, upper.CL), F, T))
+
+
+# Limit temperature plotting range
+actual_range <- peak_chase_model_df %>%
+  group_by(season, area) %>%
+  summarise(
+    min_f = min(total_weight_lb)-2,
+    max_f = max(total_weight_lb)+2,
+    .groups = "drop")
+
+
+
+# Plot over observed data
+landings_ar_plot <- f_preds %>% 
+  left_join(actual_range) %>%
+  filter((x < min_f) == F,
+         (x > max_f) == F) %>%
+  left_join(select(f_emtrend, area,non_zero)) %>%
+  filter(non_zero) %>%
+  ggplot() +
+  geom_ribbon(aes(x, ymin = conf.low, ymax = conf.high, group = season), alpha = 0.1) +
+  geom_line(
+    aes(x, predicted, color = season), 
+    linewidth = 1) +
+  geom_point(
+    data = filter(peak_chase_model_df, area != "Northeast Shelf"),
+    aes(total_weight_lb, b, color = season),
+    alpha = 0.4,
+    size = 1) +
+  facet_grid(area~., scales = "free", labeller = label_wrap_gen(width = 8)) +
+  scale_color_gmri() +
+  scale_x_log10(labels = label_log(base = 10), limits = 10^c(0,10)) +
+  labs(y = "Exponent of ISD",
+       title = "Total Landings (lb.)",
+       x = "Local Seasonal Bottom Temperature Anomaly")
+landings_ar_plot
+
+
+```
+
+
+
+
+## Bottom Temperature CCF
+
+**Shelf-Wide:**
+
+
+**Regionally:**
+
+
+
+```{r}
+#| label: ccf functions
+
+# Function to grab the correlation data and lag data
+get_ccf_vector <- function(x,y, lagmax = 10){
+  
+  # Run the ccf
+  ccf_data <- ccf(x, y, plot= F , lag.max = lagmax)
+  
+  # Get the signif:
+  # https://www.squaregoldfish.co.uk/programming/r_acf_significance.md/
+  # Not 100% sure n is the same for ccf as it is for acf, but...
+  significance_level <- qnorm((1 + 0.95)/2)/sqrt(sum(!is.na(x)))
+  
+  data.frame(
+    "acf"    = ccf_data$acf,
+    "lag"    = ccf_data$lag,
+    "sigpos" = significance_level,
+    "signeg" = significance_level*-1
+  )
+}
+
+
+# Run Local CCF on Bottom Temperature
+btemp_ccf <- peak_chase_model_df %>% 
+  unite(col = "regseas", area, season, sep = "XX") %>% 
+  split(.$regseas) %>% 
+  map_dfr(~get_ccf_vector(
+    x = .x$bot_temp, 
+    y = .x$b), .id = "regseas") %>% 
+  separate(col = "regseas", into = c("area", "season"), sep = "XX") %>% 
+  mutate(
+    # Flag when it crosses threshold
+    sig_flag = ifelse(acf < signeg | acf > sigpos, T, F),
+    # Set Factor Levels
+    area = factor(area, levels = area_levels_long_all),
+    season = factor(season, levels = c("Spring", "Fall")))
+
+
+# Plot it
+ggplot(btemp_ccf, aes(lag, acf)) +
+  geom_hline(yintercept = 0, color = "gray25", linewidth = 1) +
+  geom_vline(xintercept = 0, color = "gray25", linewidth = 1) +
+  geom_ribbon(
+    aes(ymin = signeg, ymax = sigpos), 
+        alpha = 0.2, linetype = 2, fill = "lightgray",
+    color = "gray65") +
+  geom_col(alpha = 0.65) +
+  geom_col(
+    data = filter(btemp_ccf, sig_flag), color = "black") +
+  scale_x_continuous(expand = expansion(add = c(0,0))) +
+  facet_grid(area~season) +
+  labs(
+    title = "Bottom Temperature CCF",
+    x = "Bottom Temperature Lag (years)", 
+    y = "ACF", )
+```
+
+
+## Landings CCF
+
+Its plausible that landings have a lagged effect so here are the CCFs for that.
+
+
+
+```{r}
+
+# Run Local CCF on Bottom Temperature
+landings_ccf <- peak_chase_model_df %>% 
+  drop_na(total_weight_lb) %>% 
+  unite(col = "regseas", area, season, sep = "XX") %>% 
+  split(.$regseas) %>% 
+  map_dfr(~get_ccf_vector(
+    x = .x$total_weight_lb, 
+    y = .x$b), .id = "regseas") %>% 
+  separate(col = "regseas", into = c("area", "season"), sep = "XX") %>% 
+  mutate(
+    # Flag when it crosses threshold
+    sig_flag = ifelse(acf < signeg | acf > sigpos, T, F),
+    # Set Factor Levels
+    area = factor(area, levels = area_levels_long_all),
+    season = factor(season, levels = c("Spring", "Fall")))
+
+
+
+ggplot(landings_ccf, aes(lag, acf)) +
+  geom_hline(yintercept = 0, color = "gray25", linewidth = 1) +
+  geom_vline(xintercept = 0, color = "gray25", linewidth = 1) +
+  geom_ribbon(
+    aes(ymin = signeg, ymax = sigpos), 
+        alpha = 0.2, linetype = 2, fill = "lightgray",
+    color = "gray65") +
+  geom_col(alpha = 0.65) +
+  geom_col(
+    data = filter(landings_ccf, sig_flag), color = "black") +
+  scale_x_continuous(expand = expansion(add = c(0,0))) +
+  facet_grid(area~season) +
+  labs(
+    title = "Total Landings CCF",
+    x = "Total Landings Lag (years)", 
+    y = "ACF", )
+```
+
