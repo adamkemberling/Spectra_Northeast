@@ -17,7 +17,8 @@ wigley_sizes <- read_csv(here::here("Data/processed/wigley_species_size_summary.
 wigley_length_spectra <- read_csv(here::here("Data/processed/wigley_species_length_spectra.csv"))
 wigley_bodymass_spectra <- read_csv(here::here("Data/processed/wigley_species_bodymass_spectra.csv"))
 
-
+# Shifting wmin
+wigley_shifting_spectra <- read_csv(here::here("Data/processed/wigley_species_l2peaks_bmspectra.csv"))
 
 
 
@@ -49,8 +50,18 @@ landings_annual <- read_csv(here::here("Data/processed/BEET_GARFO_regional_finfi
   rename(area = survey_area,
          est_year = year) %>% 
   left_join(area_df) %>% 
-  select(survey_area, est_year, 
+  select(survey_area, area, area_titles, est_year, 
          total_weight_lb = total_live_lb)
+
+# Get shelf totals
+landings_annual <- landings_annual %>% 
+  group_by(est_year) %>% 
+  summarise(total_weight_lb = sum(total_weight_lb, na.rm = T)) %>%
+  mutate(
+    survey_area = "Northeast Shelf",
+    area = "Northeast Shelf",
+    area_titles = "Northeast Shelf") %>% 
+  bind_rows(landings_annual)
 
 
 
@@ -108,13 +119,19 @@ ecodata::plot_forage_anomaly(report = "NewEngland")
 ffish_medlen_model_df     <- left_join(finfish_sizes, bot_temps) %>% left_join(landings_annual)
 ffish_lenspectra_model_df <- left_join(finfish_length_spectra, bot_temps) %>% left_join(landings_annual)
 
+
 # 2. Smaller Community Length/Weight/Spectra
 wigley_medlen_model_df     <- left_join(wigley_sizes, bot_temps) %>% left_join(landings_annual)
 wigley_lenspectra_model_df <- left_join(wigley_length_spectra, bot_temps) %>% left_join(landings_annual)
 wigley_bmspectra_model_df  <- left_join(wigley_bodymass_spectra, bot_temps) %>% left_join(landings_annual)
 
 
+# 3. Shifting WMIN bodymass spectra
+wigley_shifting_bmspectra_model_df <- left_join(wigley_shifting_spectra, bot_temps) %>% left_join(landings_annual)
 
+
+ggplot(wigley_shifting_bmspectra_model_df, aes(bot_temp, b, color = season)) + geom_point() + facet_wrap(~area)
+ggplot(wigley_shifting_bmspectra_model_df, aes(bot_temp, total_weight_lb, color = season)) + geom_point() + facet_wrap(~survey_area)
 
 
 #### Save Modeling Data  ####
@@ -127,4 +144,9 @@ write_csv(ffish_lenspectra_model_df, here::here("Data/model_ready/large_communit
 write_csv(wigley_medlen_model_df, here::here("Data/model_ready/wigley_community_medsize_mod.csv"))
 write_csv(wigley_lenspectra_model_df, here::here("Data/model_ready/wigley_community_lenspectra_mod.csv"))
 write_csv(wigley_bmspectra_model_df, here::here("Data/model_ready/wigley_community_bmspectra_mod.csv"))
+
+# shifting wmin
+write_csv(wigley_shifting_bmspectra_model_df, here::here("Data/model_ready/wigley_community_shifting_bmspectra_mod.csv"))
+
+
 
