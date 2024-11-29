@@ -614,15 +614,6 @@ group_binspecies_spectra <-  function(
         #n_i <- sum(ceiling(ss_input_i$Number) )
         n_i <- sum(ss_input_i$Number)
         
-        # debugging
-        # return(
-        #   list(
-        #     n = n_i,
-        #     xmin = isd_xmin,
-        #     xmax = isd_xmax,
-        #     vdiff = vdiff
-        #   )
-        # )
         
         # Do the exponent estimation for group i
         group_est <- calcLike(

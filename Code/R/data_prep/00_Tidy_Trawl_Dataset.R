@@ -38,12 +38,14 @@ trawl_basic <- trawl_basic %>%
 
 
 # So if the species is a decapod or shellfish then they estimate length to the nearest mm. 
-# Otherwise length is to the nearest cm. So this is important to distinguish for lobster vs. finfish predators.
+# Otherwise length is to the nearest cm. 
+# This is important to distinguish for lobster vs. finfish predators.
 crusts <- trawl_basic %>%
   mutate(length_char = as.character(length_cm)) %>%
   filter(grepl("[.]", length_char)) %>%
   distinct(comname) %>% 
   pull(comname)
+
 
 
 # Drop crustaceans
@@ -53,23 +55,32 @@ finfish_trawl <- filter(trawl_basic, comname %not in% crusts)
 
 ####  Load Wigley Species  ####
 
+
+
 # Create a second dataset containing
 # species with l-w coeffficients from wigley 06
-trawl_wigley <- add_wigley_lw(trawl_basic, data_path = data_path)
+trawl_wigley <- add_wigley_lw(trawl_basic, data_path = str_c(data_path,"/"))
 
 
-# Get weight at length, and weight at length + 1
+
+# For cases where abundance == 1, We know the individual weight, and should use it
+# helps with big stingrays
+# add grams column
+trawl_wigley <- trawl_wigley %>% 
+  mutate(ind_weight_kg = if_else(abundance == 1, biomass_kg, ind_weight_kg),
+         ind_weight_g = ind_weight_kg * 1000)
+
+
+# Get weight at length, and weight at length + 1 
+# to get the range of possible weights at measurment scale, 
+# useful for sizespectra::mlebins
 trawl_wigley <- trawl_wigley %>% 
   mutate(
-    lngt_max     = length_cm + 1,              # maximum length for a fish of wmin
-    ln_wmax_kg   = (ln_a + b * log(lngt_max)), # ln(max weight for fish of that wmin
-    ind_weight_g = ind_weight_kg * 1000,
+    lngt_max     = length_cm + 1,               # maximum length for a fish of wmin
+    ln_wmax_kg   = (ln_a + b * log(lngt_max)),  # ln(max weight for fish of that wmin)
     wmin_g       = ind_weight_g,                # minimum weight of individual in grams
     wmax_g       = exp(ln_wmax_kg) * 1000       # max weight of individual in grams
   )    
-
-
-
 
 
 

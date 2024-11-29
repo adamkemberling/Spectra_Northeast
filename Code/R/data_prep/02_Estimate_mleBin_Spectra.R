@@ -18,7 +18,11 @@ source(here::here("Code/R/Processing_Functions.R"))
 
 
 ####  Load Tidy Trawl Data  ####
+
+# All finfish species, length only
 finfish_trawl <- read_csv(here::here("Data/processed/finfish_trawl_data.csv"))
+
+# Species with allometric l-w relationships
 trawl_wigley <- read_csv(here::here("Data/processed/wigley_species_trawl_data.csv"))
 
 
@@ -26,24 +30,24 @@ trawl_wigley <- read_csv(here::here("Data/processed/wigley_species_trawl_data.cs
 #### Length Spectra All Species - By Region  ####
 
 
-# Test 1 subgroup
-finfish_trawl %>% 
-  filter(est_year == 1970,
-         survey_area == "GB",
-         season == "Fall") %>% 
-  # run the function
-  group_binspecies_spectra(
-    ss_input = .,
-    grouping_vars = c("est_year", "season", "survey_area"),
-    abundance_vals = "numlen_adj",
-    length_vals = "length_cm",
-    use_weight = FALSE,
-    global_min = TRUE,
-    isd_xmin = 1,
-    isd_xmax = NULL,
-    global_max = FALSE,
-    bin_width = 1, 
-    vdiff = 4)
+# # Test 1 subgroup
+# finfish_trawl %>% 
+#   filter(est_year == 1970,
+#          survey_area == "GB",
+#          season == "Fall") %>% 
+#   # run the function
+#   group_binspecies_spectra(
+#     ss_input = .,
+#     grouping_vars = c("est_year", "season", "survey_area"),
+#     abundance_vals = "numlen_adj",
+#     length_vals = "length_cm",
+#     use_weight = FALSE,
+#     global_min = TRUE,
+#     isd_xmin = 1,
+#     isd_xmax = NULL,
+#     global_max = FALSE,
+#     bin_width = 1, 
+#     vdiff = 4)
 
 
 
@@ -69,7 +73,7 @@ length_binspectra %>%
   mutate(yr_num = as.numeric(as.character(est_year))) %>% 
   ggplot(aes(yr_num, b, color = season)) +
   geom_point(size = 1, alpha = 0.6) +
-  geom_ma(aes(linetype = "5-Year Moving Average"),n = 5, ma_fun = SMA) +
+  geom_ma(aes(linetype = "5-Year Moving Average"), n = 5, ma_fun = SMA) +
   geom_smooth(method = "lm", linewidth = 1, se = F, 
               aes(linetype = "Regression Fit")) +
   facet_wrap(~survey_area) +
@@ -82,7 +86,7 @@ length_binspectra %>%
 
 
 
-#### Full Shelf ####
+#### Full Shelf - length ####
 
 # All finfish length_spectra
 length_binspectra_shelf <- group_binspecies_spectra(
@@ -154,22 +158,6 @@ length_binspectra_wigley %>%
        x = "Year",
        color = "Season")
 
-# # Consistent with what we got last time? yes, cool
-# lbw_save <- read_csv(here::here("Data/processed/wigley_species_length_spectra.csv"))
-# lbw_save %>% 
-#   mutate(yr_num = as.numeric(as.character(est_year))) %>% 
-#   ggplot(aes(yr_num, b, color = season)) +
-#   geom_point(size = 1, alpha = 0.6) +
-#   #geom_ma(aes(linetype = "5-Year Moving Average"),n = 5, ma_fun = SMA) +
-#   geom_smooth(method = "lm", linewidth = 1, se = F, 
-#               aes(linetype = "Regression Fit")) +
-#   facet_wrap(~survey_area) +
-#   scale_color_gmri() +
-#   labs(title = "Length Spectra Slope - MLE Bins Method Wigley - saved",
-#        subtitle = "Enforced xmin = 1, xmax = max(length_cm + 1)",
-#        y = "b",
-#        x = "Year",
-#        color = "Season")
 
 
 
@@ -209,8 +197,6 @@ bodymass_binspectra_wigley %>%
        x = "Year",
        color = "Season")
 
-
-####  Full Shelf Mass Spectra  ####
 
 # For the Wigley species we can estimate individual weight from length
 # then estimate size spectra using individual weights
@@ -257,24 +243,6 @@ bodymass_binspectra_wigley_shelf %>%
 
 
 
-
-# Plot comparison
-
-bind_rows(
-  mutate(fine_params, flag = "Okay"),
-  mutate(weird_params, flag = "Off")) %>% 
-ggplot(aes(est_year, val, color = flag)) +
-  geom_point(alpha = 0.5) +
-  facet_grid(var ~ survey_area, scales = "free_y")
-
-
-
-
-
-
-
-
-
 ####  Save Length/Mass Spectra  ####
 
 # Save regional
@@ -289,7 +257,7 @@ write_csv(bodymass_binspectra_wigley_shelf, here::here("Data/processed/shelfwide
 
 
 
-#### Setting Minimum Sizes at Abundance Peaks  ####
+#### WMIN at Abundance Density Peaks  ####
 
 # In the quarto doc here:Chasing_Peasks.qmd
 # Followed recommendations to set minimum size for distribution
@@ -305,35 +273,73 @@ write_csv(bodymass_binspectra_wigley_shelf, here::here("Data/processed/shelfwide
 min_size_key <- read_csv(here::here("Data/processed/wigley_species_l2peaks_key.csv"))
 
 
+# table to join for swapping shorthand for long-hand names
+area_df <- data.frame(
+  area = c("Scotian Shelf", "Gulf of Maine", "Georges Bank", "Southern New England", "Mid-Atlantic Bight", "Northeast Shelf"),
+  survey_area = c("SS", "GoM", "GB", "SNE", "MAB", "Northeast Shelf"),
+  area_titles = c("Scotian Shelf", "Gulf of Maine", "Georges Bank", "Southern New England", "Mid-Atlantic Bight", "Northeast Shelf"))
 
-# # Join the data back to the original
-# wigley_in_new <- wigley_in %>%
-#   mutate(area = "Northeast Shelf") %>%
-#   bind_rows(wigley_in) %>%
-#   left_join(min_size_key, join_by("est_year", "area", "season")) %>%
-#   filter(wmin_g >= min_cutoff_g)
-# 
-# 
-# 
-# # Re-Run the MLE method to get new data
-# 
-# # and again for 16g to 50kg
-# peak_chase_results <- group_binspecies_spectra(
-#     ss_input       = wigley_in_new,
-#     grouping_vars  = c("est_year", "season", "survey_area"),
-#     abundance_vals = "numlen_adj",
-#     length_vals    = "length_cm",
-#     use_weight     = TRUE,
-#     isd_xmin       = NULL,
-#     global_min     = FALSE,
-#     isd_xmax       = NULL,
-#     global_max     = FALSE,
-#     bin_width      = 1,
-#     vdiff          = 2) %>% 
-#   mutate(est_year = as.numeric(est_year)) %>% 
-#   left_join(area_df)
-# 
-# 
+
+# Join the data back to the original
+# Join the data back to the original
+wigley_in_new <- trawl_wigley %>%
+  mutate(area = "Northeast Shelf", area_titles = "Northeast Shelf", survey_area = "Northeast Shelf") %>%
+  bind_rows(left_join(trawl_wigley, area_df)) %>%
+  left_join(min_size_key, join_by("est_year", "area", "season")) %>%
+  filter(wmin_g >= min_cutoff_g)
+
+
+
+
+
+
+# Re-Run the MLE method to get new data with those cutoffs
+# drops survey_areas not in the pre-ordained list
+peak_chase_results <- group_binspecies_spectra(
+    ss_input       = wigley_in_new,
+    grouping_vars  = c("est_year", "season", "survey_area"),
+    abundance_vals = "numlen_adj",
+    length_vals    = "length_cm",
+    use_weight     = TRUE,
+    isd_xmin       = NULL,
+    global_min     = FALSE,
+    isd_xmax       = NULL,
+    global_max     = FALSE,
+    bin_width      = 1,
+    vdiff          = 2) %>%
+  mutate(est_year = as.numeric(est_year)) %>%
+  left_join(area_df)
+
+# do we still have survey area etc.
+peak_chase_results %>% distinct(survey_area, area, area_titles)
+
+
+
+# And do a plot check
+peak_chase_results %>% 
+  filter(season %in% c("Spring", "Fall")) %>% 
+  mutate(
+    yr_num = as.numeric(as.character(est_year)),
+    survey_area = factor(
+      survey_area, 
+      levels = c("Northeast Shelf", "GoM", "GB", "SNE", "MAB"))) %>% 
+  
+  ggplot(aes(yr_num, b, color = season)) +
+  geom_point(size = 1, alpha = 0.6) +
+  geom_ma(aes(linetype = "5-Year Moving Average"),n = 5, ma_fun = SMA) +
+  geom_smooth(method = "lm", linewidth = 1, se = F, 
+              aes(linetype = "Regression Fit")) +
+  facet_wrap(~survey_area, ncol = 1, scales = "free") +
+  scale_color_gmri() +
+  labs(title = "Bodymass Spectra - MLE Bins Method Wigley",
+       subtitle = "Floating xmin = 1g, xmax = max(ind_weight_g)",
+       y = "b",
+       x = "Year",
+       color = "Season")
+
+
+
+
 # shelf_peak_results  <- group_binspecies_spectra(
 #     ss_input       = filter(wigley_in_new, area == "Northeast Shelf"),
 #     grouping_vars  = c("est_year", "season"),
@@ -345,19 +351,20 @@ min_size_key <- read_csv(here::here("Data/processed/wigley_species_l2peaks_key.c
 #     isd_xmax       = NULL,
 #     global_max     = FALSE,
 #     bin_width      = 1,
-#     vdiff          = 2) %>% 
+#     vdiff          = 2) %>%
 #   mutate(
 #     est_year = as.numeric(est_year),
-#     area = "Northeast Shelf") %>% 
+#     area = "Northeast Shelf") %>%
 #   left_join(area_df)
+
+
+
+
+#### # Save Shifting wmin Spectra  ####
+# write_csv(peak_chase_results, here::here("Data/processed/wigley_species_l2peaks_bmspectra.csv"))
 # 
-# 
-# # Join those together for one file
-# moving_peak_spectra <- bind_rows(peak_chase_results, shelf_peak_results)
-
-
-# # Save them
-# write_csv(moving_peak_spectra, here::here("Data/processed/wigley_species_l2peaks_bmspectra.csv"))
+# # # Save the data used for shifting peak fits
+# write_csv(wigley_in_new, here::here("Data/processed/wigley_species_trawl_wmin_filtered.csv"))
 
 
 
@@ -366,7 +373,7 @@ min_size_key <- read_csv(here::here("Data/processed/wigley_species_l2peaks_key.c
 
 
 
-#####  New Minimum Size Cutoffs?  ####
+#####  Fixed WMIN Size Cutoffs?  ####
 
 
 
@@ -410,4 +417,4 @@ bodymass_binspectra_wigley_shelf_100 %>%
 
 
 
-\
+

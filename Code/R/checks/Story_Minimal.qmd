@@ -116,7 +116,7 @@ get_preds_and_trendsignif <- function(mod_x){
 The [Aug draft you developed](https://docs.google.com/document/d/1bOIdQgFZbUavtBXPf570ATz9VjpjVX9Ki5hOqVw71CI/edit) really focused on [comparing regression models to consider drivers based on the fish community size spectrum](https://adamkemberling.github.io/Spectra_Northeast/Code/R/modeling/lm_models/lm_summary_materials.html) as viewed from the perspective of the Wigley species set vs. the full species set.  
 However, I didn't see figures of those spectra in that draft (maybe there are somewhere else and I've lost track).  The recent slide deck really focuses on seasonal differences in the size spectra and influence of temperature.  - KMills
 
-
+Everything in this markdown uses the size spectra exponent values before I shifted the `wmin` parameter. The `wmin` values are fixed at 1g across all groups.
 
 ```{r}
 #| label: Load Spectra Data and results

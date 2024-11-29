@@ -31,6 +31,11 @@ library(sizeSpectra)
 library(gganimate)
 library(glue)
 library(merTools)
+library(nlme)
+library(ggeffects)
+library(emmeans)
+library(tidyquant)
+library(performance)
 conflicted::conflict_prefer("select", "dplyr")
 conflicted::conflict_prefer("filter", "dplyr")
 
@@ -71,9 +76,13 @@ deg_c <- "\u00b0C"
 ```
 
 
-## Determining Spectra Minimum Sizes
+## Placement for Spectra Minimum Size
 
-Size spectra typically focus on the descending slope of the size distribution. This doc covers how that minima is selected and the process for doing so, and then the consequence of shifting the minima of the bounded distribution.
+Empirical size spectra studies are typically interested the descending slope of the size distribution over a range of body sizes. Depending on gear type and species involved, this range may differ from simply using all available data. Selectivity and catchability differences between gear types and across species commonly create circumstances where the individual size distribution of the data as-is does not follow the long-tailed, right-skewed shape that spectra are known for. 
+
+Rather than simply forcing a slope estimate from this data, abundance information may need to be corrected/adjusted or truncated. This is done to ensure that the individual size distribution and the parameters we report from them are representative of one another.
+
+This doc covers how the minimum weight parameter for the bounded pareto distribution (used by the Edwards et al. MLE methodology) has been determined and any consequences of shifting the minima of the bounded distribution from an across-the-board minima of 1g to a value determined for each group.
 
 
 
@@ -86,9 +95,13 @@ wigley_in <- read_csv(here::here("Data/processed/wigley_species_trawl_data.csv")
 
 ```
 
-The general idea is to bin the individual abundances by log2 size-bins, then determine the peak.
+### The Approach
 
-The following functions will aid in the labeling of log2 bins:
+It is generally understood that trawl gear are suitable for sampling a finite range of body sizes reliably. There are body-sizes at which individuals may simply pass through the mesh, there is some range of body sizes that are believed to be well sampled, and there is evidence that above certain sizes indivduals (dependent on species) may begin to avoid the gear.
+
+The general idea behind this approach is to bin the individual abundances by log2 weight-bins, then determine the bin containing peak abundance density.
+
+The following functions will aid in the labeling of log2 bins and determining abundance density:
 
 ```{r}
 #| label: log2 bin functions
@@ -318,29 +331,40 @@ wig_l2 <- assign_log2_bins(wigley_in, log2_increment = 1)
 # Create Shelf aggregate
 wig_l2 <- wig_l2 %>% 
   mutate(area = "Northeast Shelf", 
-         survey_area = "Northeast Shelf") %>% 
+         survey_area = "Northeast Shelf",
+         area_titles = "Northeast Shelf") %>% 
   bind_rows(wig_l2) %>% 
   mutate(area = factor(area, levels = area_levels_long_all),
          season = factor(season, levels = c("Spring", "Fall")))
 ```
 
 
+From there, we can use one group as an example:
 
-From there, we can use one group as an example. **In this plot peak normalized abundance is at the 2-4g bin.** 
+The following few plots will use data from Georges Bank, for its Fall 1996 size distribution.
 
-This is not the most straightforward example because its multi-modal, but this will happen so it is instructive to use.
+**In this plot peak normalized abundance (abundance density) is at the 32-64g bin.** 
 
-This example also highlights the common situation where normalized abundance approaches 0, which I'm still unsure how much that matters.
+This example also highlights that these empirical distributions may be multi-modal which is instructive as a common edge-case.
+
+In this group we also another common situation where normalized abundance (abundance density) approaches 0, which appears strangely when plotted this way on log-log axes . I'm still unsure how much that matters, or if it is only visually unappealing.
 
 
 
 ```{r}
 
-# Group details
+# # Group details
+# glabs <- list(
+#   "yr" = 2000,
+#   "area" = "MAB",
+#   "season" = "Spring"
+# )
+
+# Group details - this one is bad
 glabs <- list(
-  "yr" = 2000,
-  "area" = "MAB",
-  "season" = "Spring"
+  "yr" = 1996,
+  "area" = "GB",
+  "season" = "Fall"
 )
 
 # Filter that out
@@ -359,9 +383,11 @@ ggplot(test_case) +
       x = wmin_g, 
       weight = (numlen_adj/bin_width),
       color = after_stat(count) == max(after_stat(count))), 
+    fill = "gray70",
     breaks = 2^c(0:15), 
-    linewidth = 1) +
-  scale_color_manual(values = c("white", "orange")) +
+    linewidth = 1,
+    alpha = 0.7) +
+  scale_color_manual(values = c("transparent", "black")) +
   scale_y_continuous(
     trans = transform_log(base = 2),
     labels = label_log(base = 2),
@@ -373,14 +399,538 @@ ggplot(test_case) +
   labs(
     title = "Group Details:", 
     subtitle = str_c("Area: ", glabs$area,"\nSeason: ", glabs$season, "\nYear: ", glabs$yr ),
-    y = "Normalized Abundance",
-    x = "Bodyweight (g)")
+    y = "Abundance Density",
+    x = "Bodyweight (g)",
+    color = "Peak Number Density")
 ```
 
 
-I can't auto-locate the tallest bin within all of that geom_histogram plot code, so it will be easier to do it outside and animate them using geom_col.
+Depending on how we approach setting the limits, this group's size distribution could yield very different spectra slope information.
 
-Here are all of them as an animation:
+
+```{r}
+
+# Get aggregates
+ex_aggs <- aggregate_log2_bins(test_case, bin_increment = 1) %>% 
+  mutate(area = glabs$area, 
+         est_year = glabs$yr,
+         season = glabs$season)
+
+# Locate Tallest
+ex_tallest <- ex_aggs %>%
+  arrange(desc(normalized_abund)) %>%
+  slice(1) %>%
+  pull(left_lim)
+
+# Add info back to aggregates
+ex_aggs <- ex_aggs %>%
+  mutate(
+    is_tallest = if_else(left_lim == ex_tallest, T, F),
+    full_set = TRUE,
+    after_tallest = if_else(left_lim >= ex_tallest, T, F))
+
+
+# Plot the different slopes
+plot1 <- ggplot(ex_aggs, aes( x = left_lim, y = normalized_abund)) +
+  geom_col(
+    color = gmri_cols("gmri blue"),
+    fill = gmri_cols("gmri blue"),
+    alpha = 0.6,
+    linewidth = 1) +
+  geom_smooth(
+    method = "lm", 
+    formula = y~x, 
+    color = gmri_cols("gmri blue"), 
+    se = F) +
+  ggpmisc::stat_poly_eq(
+    method = "lm",
+    ggpmisc::use_label("eq"), 
+    formula = y ~ x,
+    geom = "label", 
+    label.x = 2, label.y = -4) +
+  scale_y_continuous(
+    trans = transform_log(base = 2),
+    labels = label_log(base = 2),
+    breaks = 2^seq(-10,16, 2)) +
+  scale_x_continuous(
+    labels = label_math(expr = 2^.x),
+    breaks = c(0:15)) +
+  scale_fill_gmri() +
+  scale_color_manual(values = c("transparent", gmri_cols("lv orange"))) +
+  facet_grid(area ~ season*est_year, scale = "free") +
+  labs(
+    y = "Number Density",
+    x = "Body Weight")
+
+
+# Plot the different slopes
+plot2 <- ggplot(filter(ex_aggs, after_tallest), aes( x = left_lim, y = normalized_abund)) +
+  geom_col(
+    data = filter(ex_aggs, after_tallest == F),
+    fill = gmri_cols("gmri blue"),
+    alpha = 0.2,
+    linewidth = 1) +
+  geom_col(
+    color = gmri_cols("gmri blue"),
+    fill = gmri_cols("gmri blue"),
+    alpha = 0.6,
+    linewidth = 1) +
+  geom_smooth(
+    method = "lm", 
+    formula = y~x, 
+    color = gmri_cols("gmri blue"), 
+    se = F) +
+  ggpmisc::stat_poly_eq(
+    method = "lm",
+    ggpmisc::use_label("eq"), 
+    formula = y ~ x,
+    geom = "label", 
+    label.x = 7, label.y = -4) +
+  scale_y_continuous(
+    trans = transform_log(base = 2),
+    labels = label_log(base = 2),
+    breaks = 2^seq(-10,16, 2)) +
+  scale_x_continuous(
+    labels = label_math(expr = 2^.x),
+    breaks = c(0:15)) +
+  scale_fill_gmri() +
+  scale_color_manual(values = c("transparent", gmri_cols("lv orange"))) +
+  facet_grid(area ~ season*est_year, scale = "free") +
+  labs(
+    y = "Number Density",
+    x = "Body Weight"
+  )
+
+
+plot1 / plot2
+
+```
+
+
+Dependent on decision making and when using the binned methodology, **this same dataset could yield a slope of -.76 or a much steeper -1.91 when using a binned spectra methodology.**
+
+Passing these same minimum size cutoffs will similarly effect the slope parameters and the goodness-of-fit for the MLE methodology.
+
+
+```{r}
+# What do these look like with MLe fits?
+
+
+#' @title Individual Size Distribution Plot Prep
+#' 
+#' @description Prepares wmin_grams data to be plotted with the MLE
+#' size spectrum slope fit.
+#'
+#' @param biomass_data Data prepped for mle estimation, use prep_wmin_wmax
+#' @param min_weight_g Minimum weight cutoff to use to match bounded pareto minimum
+#'
+#' @return
+#' @export
+#'
+#' @examples
+isd_plot_prep <- function(
+    biomass_data = databin_split, 
+    min_weight_g = 1){
+  
+  # Arrange by lower weight 
+  biomass_data <- dplyr::arrange(biomass_data, desc(wmin_g)) %>% 
+    select(wmin_g, wmax_g, numlen_adj)
+  
+  # truncate the data to in match the spectra we fit's xmin/xmax
+  biomass_data <- biomass_data %>% 
+    filter(wmin_g >= min_weight_g,
+           wmin_g != 0,
+           is.na(wmin_g) == FALSE,
+           wmax_g != 0,
+           is.na(wmax_g) == FALSE)
+  
+  # Get the total number of fish for the group
+  total_abundance <- sum(biomass_data$numlen_adj)
+  
+  # Have to do not with dplyr:
+  wmin.vec <- biomass_data$wmin_g      # Vector of lower weight bin limits
+  wmax.vec <- biomass_data$wmax_g      # Vector of upper weight bin limits
+  num.vec  <- biomass_data$numlen_adj  # Vector of corresponding counts for those bins
+  
+  # doing it with purr and pmap
+  biomass_bins <- select(biomass_data, wmin_g, wmax_g) %>% 
+    distinct(wmin_g, wmax_g)
+  
+  # Go row-by-row and get the cumulative total greater than each 
+  # minimum weight bin discrete size bin
+  out_data <- pmap_dfr(biomass_bins, function(wmin_g, wmax_g){
+    
+    # 1. Count times wmin.vec >= individual wmin_g, multiply by number of fish for year
+    # cumulative totals of sizes larger than the left lim
+    countGTEwmin <- sum( (wmin.vec >= wmin_g) * num.vec)
+    
+    # 2. Count times wmin.vec >= individual wmax_g, multiply by number of fish for year
+    # cumulative totals of sizes larger than the right lim
+    lowCount <- sum( (wmin.vec >= wmax_g) * num.vec)
+    
+    # 3. Count times wmax.vec > individual wmin_g, multiply by number of fish for year
+    highCount <- sum( (wmax.vec >  wmin_g) * num.vec)
+    
+    # 4. build table
+    out_table <- data.frame(
+      "wmin_g"       = wmin_g,
+      "wmax_g"       = wmax_g,
+      "countGTEwmin" = countGTEwmin,
+      "lowCount"     = lowCount,
+      "highCount"    = highCount
+    )
+  })
+  
+  
+  
+  # return the purr version
+  return(out_data)
+  
+  
+  
+  
+}
+```
+
+
+
+```{r}
+#| label: mle fit 1gmin
+
+# take data without moving the min, get mle results
+mle_results_1g <- group_binspecies_spectra(
+  ss_input = test_case, 
+  grouping_vars = c("area", "est_year", "season"), 
+  use_weight = T, 
+  abundance_vals = "numlen_adj",
+  length_vals = "length_cm", 
+  isd_xmin = 1, 
+  isd_xmax = NULL, 
+  global_min = F, 
+  global_max = F, 
+  bin_width = 1, 
+  vdiff = 2) 
+
+
+# Control options
+mle_results <- mle_results_1g
+actual_vals <- test_case %>% filter(wmin_g >= 1)
+min_used <- mle_results$xmin_fit
+max_used <- mle_results$xmax_fit
+
+
+
+#### -- Plpot setup below  ---
+
+# Power law parameters and summary details for the group of data:
+b.MLE           <- mle_results$b
+total_abundance <- mle_results$n
+b.confMin       <- mle_results$confMin
+b.confMax       <- mle_results$confMax
+
+# Create range of x values from the group to get power law predictions
+# min and max weights for power law
+xmin  <- min_used
+xmax  <- max_used
+
+# Create x values (individual bodymass) to predict across
+# break up the Xlim into pieces between min and max
+x.PLB <- seq(
+  from = xmin,
+  to   = xmax,
+  by = 0.1) 
+
+# get the length of that vector
+x.PLB.length <- length(x.PLB) 
+
+# Y values for plot limits/bounds/predictions from bounded power law pdf
+y.PLB         <- (1 - sizeSpectra::pPLB(
+  x = x.PLB, 
+  b = b.MLE, 
+  xmin = min(x.PLB), 
+  xmax = max(x.PLB))) * total_abundance
+
+y.PLB.confMin <- (1 - sizeSpectra::pPLB(
+  x = x.PLB, 
+  b = b.confMin, 
+  xmin = min(x.PLB), 
+  xmax = max(x.PLB))) * total_abundance
+
+y.PLB.confMax <- (1 - sizeSpectra::pPLB(
+  x = x.PLB, 
+  b = b.confMax, 
+  xmin = min(x.PLB), 
+  xmax = max(x.PLB))) * total_abundance
+
+# Put it in a df to make it easier
+PLB_df <- data.frame(
+  x.PLB   = x.PLB,
+  y.PLB   = y.PLB,
+  confMin = y.PLB.confMin,
+  confMax = y.PLB.confMax) %>%
+  mutate()
+
+
+# 2. solve the power law function again in mutate for residuals
+# need to do it twice for wmin_g and wmax_g
+# Aggregate across overlapping size ranges
+p_prepped <- actual_vals %>%
+  isd_plot_prep(min_weight_g = min_used) %>%
+  left_join(actual_vals) %>%
+  select(comname, wmin_g, wmax_g, lowCount, highCount, countGTEwmin) %>%
+  # Get the residuals
+  mutate(
+    # Estimated Abundance
+    wmin_estimate = (1 - sizeSpectra::pPLB(x = wmin_g, b = b.MLE, xmin = xmin, xmax = xmax)) * total_abundance,
+    wmax_estimate = (1 - sizeSpectra::pPLB(x = wmax_g, b = b.MLE, xmin = xmin, xmax = xmax)) * total_abundance,
+    # Residuals
+    b_resid = countGTEwmin - ((wmin_estimate + wmax_estimate)/2))
+
+
+
+#####  Plotting Raw  ####
+
+# Messing with the plot axes
+fit_1g <- ggplot() +
+  geom_line(
+    data = PLB_df, aes(x.PLB, y.PLB),
+    color = gmri_cols("lv orange"), 
+    linewidth = 1) +
+    geom_point(
+      data = p_prepped %>% filter(lowCount >0),
+      aes(x = (wmin_g+wmax_g)/2,
+          y = countGTEwmin),
+    color = gmri_cols("gmri blue"),
+    alpha = 0.65,
+    shape = 1) +
+  scale_y_continuous(
+    trans = transform_log(base = 2),
+    labels =label_log(base = 2), 
+    breaks = 2^seq(1, 16,1),
+    limits = c(2^0, 2^14),
+    expand = expansion(add = c(0,0))) +
+  scale_x_continuous(
+    trans = transform_log(base = 2),
+    labels =label_log(base = 2), 
+    breaks = 2^seq(1, 12,1),
+    limits = c(2^0, 2^14),
+    expand = expansion(add = c(0,0))) +
+  labs(x = "Weight (g)", 
+       y = "Abundance", 
+       title = "GB - Fall - 1996:\nWMIN = 1g",
+       subtitle = str_c("MLE Slope Param: ", round(mle_results$b, 2)))
+
+```
+
+
+
+
+```{r}
+#| label: mle fit wmin shifted
+
+# take data with moving the min, get mle results
+# cutoff based on the bins is 32
+mle_results_32g <- group_binspecies_spectra(
+  ss_input = filter(test_case, wmin_g >= 2^5),
+  grouping_vars = c("area", "est_year", "season"), 
+  use_weight = T, 
+  abundance_vals = "numlen_adj",
+  length_vals = "length_cm", 
+  isd_xmin = 32, 
+  isd_xmax = NULL, 
+  global_min = F, 
+  global_max = F, 
+  bin_width = 1, 
+  vdiff = 2) 
+
+
+# Control options
+mle_results <- mle_results_32g
+actual_vals <- test_case %>% filter(wmin_g >= 2^5)
+min_used <- mle_results$xmin_fit
+max_used <- mle_results$xmax_fit
+
+
+
+#### -- Plpot setup below  ---
+
+
+# Power law parameters and summary details for the group of data:
+b.MLE           <- mle_results$b
+total_abundance <- mle_results$n
+b.confMin       <- mle_results$confMin
+b.confMax       <- mle_results$confMax
+
+# Create range of x values from the group to get power law predictions
+# min and max weights for power law
+xmin  <- min_used
+xmax  <- max_used
+
+# Create x values (individual bodymass) to predict across
+# break up the Xlim into pieces between min and max
+x.PLB <- seq(
+  from = xmin,
+  to   = xmax,
+  by = 0.1) 
+
+# get the length of that vector
+x.PLB.length <- length(x.PLB) 
+
+# Y values for plot limits/bounds/predictions from bounded power law pdf
+y.PLB         <- (1 - sizeSpectra::pPLB(
+  x = x.PLB, 
+  b = b.MLE, 
+  xmin = min(x.PLB), 
+  xmax = max(x.PLB))) * total_abundance
+
+y.PLB.confMin <- (1 - sizeSpectra::pPLB(
+  x = x.PLB, 
+  b = b.confMin, 
+  xmin = min(x.PLB), 
+  xmax = max(x.PLB))) * total_abundance
+
+y.PLB.confMax <- (1 - sizeSpectra::pPLB(
+  x = x.PLB, 
+  b = b.confMax, 
+  xmin = min(x.PLB), 
+  xmax = max(x.PLB))) * total_abundance
+
+# Put it in a df to make it easier
+PLB_df <- data.frame(
+  x.PLB   = x.PLB,
+  y.PLB   = y.PLB,
+  confMin = y.PLB.confMin,
+  confMax = y.PLB.confMax) %>%
+  mutate()
+
+
+# 2. solve the power law function again in mutate for residuals
+# need to do it twice for wmin_g and wmax_g
+# Aggregate across overlapping size ranges
+p_prepped <- actual_vals %>%
+  isd_plot_prep(min_weight_g = min_used) %>%
+  left_join(actual_vals) %>%
+  select(comname, wmin_g, wmax_g, lowCount, highCount, countGTEwmin) %>%
+  # Get the residuals
+  mutate(
+    # Estimated Abundance
+    wmin_estimate = (1 - sizeSpectra::pPLB(x = wmin_g, b = b.MLE, xmin = xmin, xmax = xmax)) * total_abundance,
+    wmax_estimate = (1 - sizeSpectra::pPLB(x = wmax_g, b = b.MLE, xmin = xmin, xmax = xmax)) * total_abundance,
+    # Residuals
+    b_resid = countGTEwmin - ((wmin_estimate + wmax_estimate)/2))
+
+
+
+#####  Plotting Raw  ####
+
+# Messing with the plot axes
+fit_32g <- ggplot() +
+  geom_line(
+    data = PLB_df, aes(x.PLB, y.PLB),
+    color = gmri_cols("lv orange"), 
+    linewidth = 1) +
+    geom_point(
+      data = p_prepped %>% filter(lowCount >0),
+      aes(x = (wmin_g+wmax_g)/2,
+          y = countGTEwmin),
+    color = gmri_cols("gmri blue"),
+    alpha = 0.65,
+    shape = 1) +
+  scale_y_continuous(
+    trans = transform_log(base = 2),
+    labels =label_log(base = 2), 
+    breaks = 2^seq(1, 16,1),
+    limits = c(2^0, 2^14),
+    expand = expansion(add = c(0,0))) +
+  scale_x_continuous(
+    trans = transform_log(base = 2),
+    labels =label_log(base = 2), 
+    breaks = 2^seq(1, 12,1),
+    limits = c(2^0, 2^14),
+    expand = expansion(add = c(0,0))) +
+  labs(x = "Weight (g)", 
+       y = "Abundance", 
+       title = "GB - Fall - 1996:\nWMIN = 32g",
+       subtitle = str_c("MLE Slope Param: ", round(mle_results$b, 2)))
+
+
+```
+
+
+```{r}
+#| label: plot mle fit comparison
+
+
+fit_1g / fit_32g
+    
+```
+
+
+**If using the MLE methodology, the difference in the exponent parameters returned by shifting the wmin parameter is the difference between -0.94 & -1.53.**
+
+
+In both cases, abundance information in the center of the size distribution (16-256g) is poorly fit when including abundance information from smaller body sizes. This tradeoff is problematic, because we are in some sense accomadating data at small sizes that are known to be under/inconsistently samples by the sampling gear at the expense of information from larger size classes which are better sampled. 
+
+
+
+### Selectivity/Catchability and Abundance Density Peaks
+
+Why the peak abundance (or near peak) as minimum size threshold? 
+
+It is widely accepted that below a certain size fishes may simply escape through the mesh and avoid sampling, while larger individuals may out-swim or avoid the gear altogether. Together these create a  dome-shaped catchability curve with some intermediate size having the highest catchability.
+
+Data collected from gears with catchability curves are prone to systematic under-sampling of smaller individuals that are poorly selected and individuals large enough to avoid the gear.
+
+These relationships will vary species-to-species, but broadly speaking this will be true.
+
+
+```{r}
+#| fig-height: 4
+
+# Plot the different slopes
+ggplot(filter(ex_aggs, after_tallest), aes( x = left_lim, y = normalized_abund)) +
+  geom_col(
+    data = filter(ex_aggs, after_tallest == F),
+    fill = gmri_cols("gmri blue"),
+    alpha = 0.2,
+    linewidth = 1) +
+  geom_col(
+    color = gmri_cols("gmri blue"),
+    fill = gmri_cols("gmri blue"),
+    alpha = 0.6,
+    linewidth = 1) +
+  geom_text(
+    data = data.frame(x = 2, y = 164, label = "Under-representation\nof small body sizes\n b/c differences\n in catchability"),
+    aes(x,y, label = label), color = gmri_cols("gmri blue")) +
+  geom_abline(
+    slope = -1.91, 
+    intercept = 17, 
+    color = gmri_cols("gmri blue"), 
+    linewidth = 1) +
+  scale_y_continuous(
+    trans = transform_log(base = 2),
+    labels = label_log(base = 2),
+    breaks = 2^seq(-10,18, 2),
+    expand = expansion(add = c(0, 2^3))) +
+  scale_x_continuous(
+    labels = label_math(expr = 2^.x),
+    breaks = c(0:15)) +
+  scale_fill_gmri() +
+  scale_color_manual(values = c("transparent", gmri_cols("lv orange"))) +
+  facet_grid(area ~ season*est_year, scale = "free") +
+  labs(
+    y = "Number Density",
+    x = "Body Weight"
+  )
+
+```
+
+
+
+
+## Peak Location Across Years
+
+Here are where all of the peaks exist for each group viewed as an animation:
 
 ```{r}
 #| eval: true
@@ -439,7 +989,7 @@ wig_l2_aggs <- wig_l2 %>%
 #   scale_color_manual(values = c("transparent", "black")) +
 #   facet_grid(area ~ season, scale = "free") +
 #   labs(
-#     y = "Normalized Abundance",
+#     y = "Abundance Density",
 #     x = "Bodyweight (g)",
 #     title = 'Year: {closest_state}', # Dynamic title for year
 #     fill = "Season") +
@@ -461,13 +1011,15 @@ wig_l2_aggs <- wig_l2 %>%
 knitr::include_graphics(here::here("faceted_tallest_bin_spectra_wigley.gif"))
 ```
 
+From this animation we can see that the placement and variability in the location of peak abundance densities is different seasonally and between the different regions.
 
 
 
-
-### Looking at Individual Years w/ Observable
+## Looking at Individual Years w/ Observable
 
 I like having the ability to look at them one-by-one, but don't want to make 800 plots or tabs. I'm using this exercise as an excuse to use observable for interactive selections.
+
+Across these plots it is possible to see many instances where the actual individual size distribution does not show the characteristic shape we've come to expect for size spectra.
 
 
 ```{r}
@@ -486,6 +1038,7 @@ ojs_define(
 
 
 ```{ojs}
+//| label: OJS sliders
 
 //// Create Sliders / Input selections
 
@@ -516,6 +1069,7 @@ filteredFall = transpose(data).filter(function(d) {
 
 
 ```{ojs}
+//| label: Spring reactive plot
 //| fig.align: center
 //| fig.height: 10
 //| fig.width: 10
@@ -557,6 +1111,7 @@ Plot.plot({
 
 
 ```{ojs}
+//| label: Fall reactive plot
 //| fig.align: center
 //| fig.height: 10
 //| fig.width: 10
@@ -624,87 +1179,91 @@ wig_l2_aggs %>%
 
 
 
-## Applying the Minimums
+## Applying the New wmin Parameters
 
-From this dataframe we can strip out the key group information and the minimum size as a lookup table. This can be joined and used as a filter as a preparatory step before fitting the group spectra.
+From this dataframe we can strip out the key group information and the minimum size as a lookup table. 
+
+This can be joined and used as a filter as a preparatory step before fitting the group spectra. Then we can re-run the MLE estimation of the slope parameters and see how they have changed.
 
 
 ```{r}
-#| label: make min size key
+#| label: make cutoff key
 #| eval: false
 
-# # Make the key
-# min_size_key <- wig_l2_aggs  %>%
-#   filter(is_tallest) %>%
-#   distinct(area, season,  est_year, left_lim, is_tallest) %>%
-#   mutate(min_cutoff_g = 2^left_lim) %>%
-#   select(-left_lim) %>%
-#   mutate(est_year = as.numeric(est_year))
-# 
-# 
-# 
-# # Join the data back to the original
-# wigley_in_new <- wigley_in %>%
-#   mutate(area = "Northeast Shelf") %>%
-#   bind_rows(wigley_in) %>%
-#   left_join(min_size_key, join_by("est_year", "area", "season")) %>%
-#   filter(wmin_g >= min_cutoff_g)
-# 
-# 
-# 
-# # Re-Run the MLE method to get new data
-# 
-# # and again for 16g to 50kg
-# peak_chase_results <- group_binspecies_spectra(
-#     ss_input       = wigley_in_new,
-#     grouping_vars  = c("est_year", "season", "survey_area"),
-#     abundance_vals = "numlen_adj",
-#     length_vals    = "length_cm",
-#     use_weight     = TRUE,
-#     isd_xmin       = NULL,
-#     global_min     = FALSE,
-#     isd_xmax       = NULL,
-#     global_max     = FALSE,
-#     bin_width      = 1,
-#     vdiff          = 2) %>% 
-#   mutate(est_year = as.numeric(est_year)) %>% 
-#   left_join(area_df)
-# 
-# 
-# shelf_peak_results  <- group_binspecies_spectra(
-#     ss_input       = filter(wigley_in_new, area == "Northeast Shelf"),
-#     grouping_vars  = c("est_year", "season"),
-#     abundance_vals = "numlen_adj",
-#     length_vals    = "length_cm",
-#     use_weight     = TRUE,
-#     isd_xmin       = NULL,
-#     global_min     = FALSE,
-#     isd_xmax       = NULL,
-#     global_max     = FALSE,
-#     bin_width      = 1,
-#     vdiff          = 2) %>% 
-#   mutate(
-#     est_year = as.numeric(est_year),
-#     area = "Northeast Shelf") %>% 
-#   left_join(area_df)
-# 
-# 
-# # Join those together for one file
-# moving_peak_spectra <- bind_rows(peak_chase_results, shelf_peak_results)
-
+# Make the key
+min_size_key <- wig_l2_aggs  %>%
+  filter(is_tallest) %>%
+  distinct(area, season,  est_year, left_lim, is_tallest) %>%
+  mutate(min_cutoff_g = 2^left_lim) %>%
+  select(-left_lim) %>%
+  mutate(est_year = as.numeric(est_year))
 
 # # Save them
 # write_csv(min_size_key, here::here("Data/processed/wigley_species_l2peaks_key.csv"))
-# write_csv(moving_peak_spectra, here::here("Data/processed/wigley_species_l2peaks_bmspectra.csv"))
+
+ 
+
 ```
 
-## Plot New Results
+
+
+## Results with Minimum Sizes Applied
 
 
 ```{r}
-# Re-Load them
+
+# Re-ran spectra with net minima
+# Moved this into 02_estimate_mleBin_Spectra.R to go with the rest of pipeline
+
+# Load the saved key
 min_size_key <- read_csv(here::here("Data/processed/wigley_species_l2peaks_key.csv"))
-moving_peak_spectra <- read_csv(here::here("Data/processed/wigley_species_l2peaks_bmspectra.csv"))
+
+# Load the data fed to spectra fit after those are applied
+wigley_in_new <- read_csv(
+  here::here("Data/processed/wigley_species_trawl_wmin_filtered.csv")) %>%
+  mutate(
+    area = factor(area, levels = area_levels_long_all),
+    season = factor(season, levels = c("Spring", "Fall"))
+  )
+
+# Load the spectra results
+# Moved this into 02_estimate_mleBin_Spectra.R to go with the rest of pipeline
+moving_peak_spectra <- read_csv(
+  here::here("Data/processed/wigley_species_l2peaks_bmspectra.csv")) %>% 
+  mutate(
+    area = factor(area, levels = area_levels_long_all),
+    season = factor(season, levels = c("Spring", "Fall"))
+  )
+
+
+
+# # Plot the range of sizes that they span
+# wigley_in_new %>% 
+#   group_by(area, season, est_year) %>% 
+#   summarise(
+#     wmin = min(wmin_g, na.rm = T),
+#     wmax = max(wmin_g, na.rm = T),
+#     .groups = "drop") %>% 
+#   ggplot(aes(x = wmin, xend = wmax, y = est_year, yend = est_year, color = season)) +
+#   geom_segment() +
+#   scale_color_gmri() +
+#   facet_grid(area~season) +
+#   scale_x_continuous(labels = label_number(big.mark = ",", scale = 0.001)) +
+#   labs(x = "Weight (kg)", title = "Size Ranges Fed to Spectra Fitting")
+```
+
+
+
+```{r}
+#| label: load model dataset
+
+# Load the prepared dataset from 03_merge_results_to_covariates.csv
+# has seasonal bt and annual landings added
+peak_chase_model_df <- read_csv(here::here("Data/model_ready/wigley_community_shifting_bmspectra_mod.csv"))  %>% 
+  mutate(
+    area = factor(area, levels = area_levels_long_all),
+    season = factor(season, levels = c("Spring", "Fall"))
+  )
 
 ```
 
@@ -716,9 +1275,7 @@ moving_peak_spectra <- read_csv(here::here("Data/processed/wigley_species_l2peak
 get_preds_and_trendsignif <- function(mod_x){
   modx_preds <- as.data.frame(
     # Model predictions
-    ggpredict(
-      mod_x, 
-      terms = ~ est_year * area * season) ) %>% 
+    ggpredict(mod_x, terms = ~ est_year * area * season) ) %>% 
     mutate(
       area = factor(group, levels = area_levels_long_all),
       season = factor(facet, levels = c("Spring", "Fall")))
@@ -740,15 +1297,12 @@ get_preds_and_trendsignif <- function(mod_x){
 
 ```
 
+Once the size distribution has been truncated according to the approach above, we now see some different long-term trends emerge. Most regions now show stability in the community size distribution over time, with Spring Georges Bank showing long-term steepening, and Spring MAB showing a shallowing trend over time.
 
 
 ```{r}
 
 # Model linear trends in time
-library(nlme)
-library(ggeffects)
-library(emmeans)
-library(tidyquant)
 
 moving_peak_spectra <- moving_peak_spectra %>% 
   mutate(
@@ -794,24 +1348,214 @@ bmspectra_trend_p <- ggplot() +
   labs(
     title = "Trends in Spectra w/ Shifting wmin",
     x = "Year",
-    y = "Exponent of Mass Size Spectra",
-    linetype = "Trend",
+    y = "Size Distribution Exponent",
     color = "Season",
-    fill = "Season")
+    fill = "Season", 
+    linetype = "Trend")
  
 # Show plot
 bmspectra_trend_p
 ```
 
-Things to check in the morning:
- - autocorrelative structure
- - are seasons correlated now
- - what is the relationship of steepness to minimum weght cutoff? 
- 
- 
-### Autocorrelation Check
 
-These are annual chek-ins of the multi-species, multi-cohort community size structure in an area. There should be some memory of the previous six months and/or the previous year.
+ 
+ 
+## All Trends Figure
+
+Spectra trends in the context of overall emdian size and temperature trends.
+
+
+```{r}
+#| label: median weight changes
+
+
+# Load the median weight/length data
+wigley_size_df <- read_csv(here::here("Data/processed/wigley_species_size_summary.csv"))
+
+# shelf-wide summary
+wigley_sizes_shelf <- read_csv(here::here("Data/processed/shelfwide_wigley_species_size_summary.csv"))
+
+
+# Join them
+size_results <- bind_rows(wigley_size_df, wigley_sizes_shelf) %>% 
+  mutate(
+    community = "Wigley Subset",
+    survey_area = factor(survey_area, levels = area_levels_all)) %>% 
+  left_join(area_df)
+
+
+
+# Get trends:
+wt_mod_wig <- gls(
+  med_wt_kg ~ scale(est_year) * area * season,
+  correlation = corAR1(form = ~ est_year | area/season),
+  data = drop_na(size_results, med_wt_kg))
+
+
+
+# Get the predictions and flag whether they are significant
+size_trend_predictions <- get_preds_and_trendsignif(wt_mod_wig) %>% 
+  mutate(model_id = "med_wt_kg-Wigley Subset") %>% 
+  separate(model_id, into = c("metric", "community"), sep = "-") %>% 
+  mutate(metric = fct_rev(metric))
+
+
+
+
+# Median length - all species
+size_long <- size_results %>% 
+  pivot_longer(cols = c(med_len_cm, med_wt_kg), 
+               names_to = "metric", 
+               values_to = "val")  %>% 
+  mutate(
+    survey_area = fct_relevel(survey_area, area_levels_all),
+    area = fct_relevel(area, area_levels_long_all),
+    season = fct_rev(season))
+
+
+# Median weight - wigley species
+
+# weight plots
+wt_plot <- size_long %>% 
+  filter(metric == "med_wt_kg") %>% 
+  drop_na(val) %>% 
+  ggplot() +
+  geom_ribbon(
+    data = filter(size_trend_predictions, metric == "med_wt_kg", non_zero == TRUE),
+    aes(x, ymin = conf.low, ymax = conf.high, fill = season),
+    linewidth = 1, alpha = 0.35) +
+  geom_point(
+    aes(est_year, val, color = season),
+    size = 0.8, alpha = 0.5) +
+  geom_ma(
+    aes(est_year, val, color = season, linetype = "5-Year Moving Average"), 
+    n = 5, ma_fun = SMA, key_glyph = "timeseries") +
+  geom_line(
+    data = filter(size_trend_predictions, metric == "med_wt_kg", non_zero == TRUE),
+    aes(x, predicted, color = season, linetype = "Significant Trend"),
+    linewidth = 1, alpha = 1) +
+  scale_fill_gmri() +
+  scale_color_gmri() +
+  facet_grid(area ~ .,
+             scales = "free")  +
+  labs(
+    x = "Year",
+    y = "Median Weight (kg)",
+    color = "Season",
+    fill = "Season", 
+    linetype = "Trend")
+
+
+
+```
+
+```{r}
+
+
+# Model linear trends in time
+btemp_mods <- lm(
+  formula = bot_temp ~ scale(est_year) * area * season,
+  data = peak_chase_model_df)
+
+
+
+# change the stupid labels around because
+btemp_preds <- as.data.frame(
+    # Model predictions
+    ggpredict(
+        btemp_mods, 
+        terms = ~ est_year * area * season) ) %>% 
+    mutate(
+        area = factor(group, levels = area_levels_long_all),
+        season = factor(facet, levels = c("Spring", "Fall")))
+btemp_signif <- emtrends(
+      object = btemp_mods,
+      specs =  ~ area*season,
+      var = "est_year") %>% 
+      as_tibble() %>% 
+      mutate(
+        zero = 0,
+        non_zero = if_else(between(zero, lower.CL, upper.CL), F, T))
+btemp_trend_predictions <- left_join(btemp_preds, btemp_signif)  %>% 
+  mutate(area = group,
+         area = factor(area, levels = area_levels_long_all),
+         season = factor(season, levels = c("Spring", "Fall")))
+
+
+
+
+# Plot temperatures
+temp1 <- peak_chase_model_df %>% 
+  ggplot() +
+  geom_ribbon(
+    data = filter(btemp_trend_predictions, non_zero == TRUE),
+    aes(x, ymin = conf.low, ymax = conf.high, fill = season),
+    linewidth = 1, alpha = 0.35) +
+  geom_point(
+    aes(est_year, bot_temp, color = season),
+    size = 0.8, alpha = 0.5) +
+  geom_ma(
+    aes(est_year, bot_temp, color = season, linetype = "5-Year Moving Average"),
+    size = 1, n = 5, ma_fun = SMA, key_glyph = "timeseries") +
+  geom_line(
+    data = filter(btemp_trend_predictions, non_zero == TRUE),
+    aes(x, predicted, color = season, linetype = "Significant Trend"),
+    linewidth = 1, alpha = 1) +
+  scale_color_gmri() + 
+  scale_fill_gmri() + 
+  #scale_linetype_manual(values = c(1,1)) +
+  facet_grid(area~., scales = "free", labeller = label_wrap_gen(width = 8)) +
+  theme(legend.position = "bottom") +
+  scale_y_continuous(labels = label_number(suffix = "\u00b0C")) +
+  labs(
+    y = "Bottom Temperature", 
+    x = "Year", 
+    color = "Season",
+    fill = "Season", 
+    linetype = "Trend",
+    title = "")
+
+
+
+
+```
+
+
+
+
+```{r}
+# Show plot
+( 
+    # Size Spectra
+    (bmspectra_trend_p + 
+       labs(title = "") + 
+       theme(
+         strip.text.y = element_blank(),
+         plot.margin = margin(0,2,0,2),
+     legend.position = "none")) |
+     # Median Weight
+     (wt_plot + 
+        theme(
+          strip.text.y = element_blank(),
+          plot.margin = margin(0,2,0,2),
+          legend.position = "none")) |
+     # Bottom Temperature
+     temp1 + 
+      theme(
+        plot.margin = margin(0,2,0,2)) 
+    ) +
+  plot_layout(guides = "collect") & theme(legend.title = element_text(hjust = 0.5),
+                                          legend.title.position = "top")
+```
+ 
+ 
+## Autocorrelation / CCF Checks
+
+
+These timeseries are in-essence annual check-ins of the multi-species, multi-cohort community size structure in an area. There is some reason to think that there should be some memory of the previous six months and/or the previous year. Similarly, the individual size distribution of the community may respond to external factors with some time-lag. 
+
+
+I have been informed that autocorrelation in the spectra slopes themselves may not be a safe assumption to make, but here are ACF plots regardless. 
 
 ```{r}
 
@@ -872,7 +1616,7 @@ ggplot(spectra_acf, aes(lag, acf)) +
 
 ```
 
-Based on the auto-corrrelation function results we have a similar outlook on the annual autocorrelations.
+Based on the auto-corrrelation function results we have a similar outlook on the annual autocorrelations as we did before shifting `wmin` where there is not very much evidence of long-term memory in the size distribution.
 
 
 ```{r}
@@ -904,239 +1648,20 @@ moving_peak_spectra %>%
 ```
 
 
-### Affinities to Large External Factors
-
-Here I could explore whether the relationships to bottom temperature or landings, but I remain unconvinced this is the right path forward.
-
-
-```{r}
-# From Andy Beet
-landings_annual <- read_csv(here::here("Data/processed/BEET_GARFO_regional_finfish_landings.csv")) %>% 
-  rename(area = survey_area,
-         est_year = year) %>% 
-  left_join(area_df) %>% 
-  select(survey_area, area, est_year, total_weight_lb = total_live_lb)
-
-# Get shelf totals
-landings_annual <- landings_annual %>% 
-  group_by(est_year) %>% 
-  summarise(total_weight_lb = sum(total_weight_lb, na.rm = T)) %>%
-  mutate(
-    survey_area = "Northeast Shelf",
-    area = "Northeast Shelf") %>% 
-  bind_rows(landings_annual)
-  
-
-# Seasonal Bottom Temp
-bot_temps <- read_csv(here::here("Data/processed", "trawl_region_seasonal_bottom_temps.csv")) %>% 
-  rename(area = survey_area,
-         est_year = year) %>% 
-  left_join(area_df) %>% 
-  select(survey_area, area, est_year, season, bot_temp, overall_avg_btemp, bot_temp_anom)
-
-
-
-# Join these
-peak_chase_model_df <- left_join(moving_peak_spectra, bot_temps) %>% left_join(landings_annual) %>% 
-  mutate(area = factor(area, levels = area_levels_long_all))
-```
-
-
-
-
-
-
-```{r}
-#| label: landings and temp model
-
-
-# Just drop the random effect part for now
-full_model_ar <- nlme::gls(
-  # Model
-  model = b ~ area * season * scale(bot_temp) + area * scale(log(total_weight_lb)), 
-  
-  # Data
-  data = peak_chase_model_df %>%
-    drop_na(total_weight_lb) %>% 
-    dplyr::filter(area != "Northeast Shelf"),
-  
-  # Autocorrelation
-  correlation = corAR1(form = ~ est_year | area/season))
-
-# Check the model
-library(performance)
-# check_model(full_model_ar)
-
-
-# # Collinearity without interactions
-# plot(
-#   check_collinearity(
-#     nlme::gls(
-#         b ~ area + season + scale(bot_temp) +  scale(log_land),
-#         data = drop_na(wigley_bmspectra_model_df, total_weight_lb) %>%
-#                  filter(area != "Northeast Shelf") %>% 
-#           mutate(log_land = log(total_weight_lb)),
-#         correlation = corAR1(form = ~ est_year | survey_area/season)
-#       )
-#     )
-#   )
-
-
-# # confidence intervals on phi
-# intervals(full_model_ar)$corStruct
-
-```
-
-
-
-```{r}
-#| label: temperature marginal effects
-
-
-
-# Clean up the plot:
-# Plot the predictions over data
-temp_preds <- as.data.frame(
-  ggpredict(
-    full_model_ar, 
-    terms = ~ bot_temp * area * season))   %>% 
-  mutate(
-    area = factor(group, levels = area_levels_long_all),
-    season = factor(facet, levels = c("Spring", "Fall")))
-
-
-
-#### Trend Posthoc  ####
-
-# Flag effect fits that are non-significant  ###
-temp_emtrend <- emtrends(
-  object = full_model_ar,
-  specs =  ~ area * season,
-  mode = "appx-satterthwaite",
-  var = "bot_temp") %>%
-  as_tibble() %>%
-  mutate(
-    zero = 0,
-    non_zero = if_else(between(zero, lower.CL, upper.CL), F, T))
-
-
-# Limit temperature plotting range
-actual_range <- peak_chase_model_df %>%
-  filter(area != "Northeast Shelf") %>% 
-  group_by(season, area) %>%
-  summarise(
-    min_temp = min(bot_temp)-2,
-    max_temp = max(bot_temp)+2,
-    .groups = "drop")
-
-
-
-# Plot over observed data
-local_btemp <- temp_preds %>% 
-  left_join(actual_range) %>%
-  filter((x < min_temp) == F,
-         (x > max_temp) == F) %>%
-  left_join(select(temp_emtrend, area, season, non_zero)) %>%
-  filter(non_zero) %>%
-  ggplot() +
-  geom_ribbon(aes(x, ymin = conf.low, ymax = conf.high, group = season), alpha = 0.1) +
-  geom_line(
-    aes(x, predicted, color = season), 
-    linewidth = 1) +
-  geom_point(
-    data = filter(peak_chase_model_df, area!= "Northeast Shelf"),
-    aes(bot_temp, b, color = season),
-    alpha = 0.4,
-    size = 1) +
-  facet_grid(area~., scales = "free", labeller = label_wrap_gen(width = 8)) +
-  scale_color_gmri() +
-  scale_x_continuous(labels = label_number(suffix = deg_c)) +
-  labs(y = "Mass distribution Exponent",
-       x = "Local Seasonal Bottom Temperature Anomaly")
-local_btemp
-```
-
-
-```{r}
-#| label: landings marginal effect plot
-
-
-# Clean up the plot:
-# Plot the predictions over data
-f_preds <- as.data.frame(
-  ggpredict(
-    full_model_ar, 
-    terms = ~ total_weight_lb * area * season))   %>% 
-  mutate(
-    area = factor(group, levels = area_levels_long_all),
-    season = factor(facet, levels = c("Spring", "Fall")))
-
-
-
-#### Trend Posthoc  ####
-
-# Flag effect fits that are non-significant  ###
-f_emtrend <- emtrends(
-  object = full_model_ar,
-  specs =  ~ area,
-  var = "total_weight_lb",
-  mode = "appx-satterthwaite"
-  ) %>%
-  as_tibble() %>%
-  mutate(
-    zero = 0,
-    non_zero = if_else(between(zero, lower.CL, upper.CL), F, T))
-
-
-# Limit temperature plotting range
-actual_range <- peak_chase_model_df %>%
-  group_by(season, area) %>%
-  summarise(
-    min_f = min(total_weight_lb)-2,
-    max_f = max(total_weight_lb)+2,
-    .groups = "drop")
-
-
-
-# Plot over observed data
-landings_ar_plot <- f_preds %>% 
-  left_join(actual_range) %>%
-  filter((x < min_f) == F,
-         (x > max_f) == F) %>%
-  left_join(select(f_emtrend, area,non_zero)) %>%
-  filter(non_zero) %>%
-  ggplot() +
-  geom_ribbon(aes(x, ymin = conf.low, ymax = conf.high, group = season), alpha = 0.1) +
-  geom_line(
-    aes(x, predicted, color = season), 
-    linewidth = 1) +
-  geom_point(
-    data = filter(peak_chase_model_df, area != "Northeast Shelf"),
-    aes(total_weight_lb, b, color = season),
-    alpha = 0.4,
-    size = 1) +
-  facet_grid(area~., scales = "free", labeller = label_wrap_gen(width = 8)) +
-  scale_color_gmri() +
-  scale_x_log10(labels = label_log(base = 10), limits = 10^c(0,10)) +
-  labs(y = "Exponent of ISD",
-       title = "Total Landings (lb.)",
-       x = "Local Seasonal Bottom Temperature Anomaly")
-landings_ar_plot
-
-
-```
-
-
 
 
 ## Bottom Temperature CCF
 
+
 **Shelf-Wide:**
 
+Spectra lead any significant bottom temperature relationships.
 
 **Regionally:**
 
+Seems centered on the same year over the different groups, not seeing a progression that would point to an important lag effect that would work for all areas.
 
+This is not surprising to me. When we build SDM's and temperature is an important factor we are explicitly making a model where individuals shift their distribution in space-time based on the observed temperature at that time and place.
 
 ```{r}
 #| label: ccf functions
@@ -1201,7 +1726,13 @@ ggplot(btemp_ccf, aes(lag, acf)) +
 
 Its plausible that landings have a lagged effect so here are the CCFs for that.
 
+The CCF results for landings appear to show that the spectra in GOM lead the landings. This makes sense with regards to regulatory cutbacks.
 
+In Georges Bank there are significant negative relationships 9 & 10 years out. This aligns better in direction with the mechanism that removing large fish steepens spectra, but a decade's lead time is long for a mechanism that is essentially instantaneous.
+
+SNE spring shows what looks more supportive.
+
+MAB Spring is either centered or spectra are leading the landings.
 
 ```{r}
 
@@ -1239,5 +1770,343 @@ ggplot(landings_ccf, aes(lag, acf)) +
     title = "Total Landings CCF",
     x = "Total Landings Lag (years)", 
     y = "ACF", )
+```
+
+
+
+
+## Modeling Relationships with Large External Factors
+
+Here I could explore whether the relationships to bottom temperature or landings, but I remain unconvinced this is the right path forward.
+
+
+
+### Landings and Temperature Global Model
+
+The following results are from a lienar model with both scaled log(landings) (the annual total) and the seasonal mean bottom temperatures for each area.
+
+
+```{r}
+#| label: landings and temp model
+
+
+# Just drop the random effect part for now
+full_model_ar <- nlme::gls(
+  # Model
+  model = b ~ area * season * scale(bot_temp) + area * scale(log(total_weight_lb)), 
+  
+  # Data
+  data = peak_chase_model_df %>%
+    drop_na(total_weight_lb),
+  
+  # Autocorrelation
+  correlation = corAR1(form = ~ est_year | area/season))
+
+# Check the model
+# check_model(full_model_ar)
+
+
+# # Collinearity without interactions
+# plot(
+#   check_collinearity(
+#     nlme::gls(
+#         b ~ area + season + scale(bot_temp) +  scale(log_land),
+#         data = drop_na(wigley_bmspectra_model_df, total_weight_lb) %>%
+#                  filter(area != "Northeast Shelf") %>% 
+#           mutate(log_land = log(total_weight_lb)),
+#         correlation = corAR1(form = ~ est_year | survey_area/season)
+#       )
+#     )
+#   )
+
+
+# # confidence intervals on phi
+# intervals(full_model_ar)$corStruct
+
+# # Summary Table
+tbl_regression(full_model_ar)
+
+```
+
+From this model we see that an effect of bottom temperature on the size distribution is only seen in the Spring-MAB data. The following is the marginal-effects plot of the data with that relationship overlayed.
+
+With increasing bottom temperature, the Spring-MAB size distribution has become less steep.
+
+```{r}
+#| label: temperature marginal effects
+
+
+
+# Clean up the plot:
+# Plot the predictions over data
+temp_preds <- as.data.frame(
+  ggpredict(
+    full_model_ar, 
+    terms = ~ bot_temp * area * season))   %>% 
+  mutate(
+    area = factor(group, levels = area_levels_long_all),
+    season = factor(facet, levels = c("Spring", "Fall")))
+
+
+
+#### Trend Posthoc  ####
+
+# Flag effect fits that are non-significant  ###
+temp_emtrend <- emtrends(
+  object = full_model_ar,
+  specs =  ~ area * season,
+  mode = "appx-satterthwaite",
+  var = "bot_temp") %>%
+  as_tibble() %>%
+  mutate(
+    zero = 0,
+    non_zero = if_else(between(zero, lower.CL, upper.CL), F, T))
+
+
+# Limit temperature plotting range
+actual_range <- peak_chase_model_df %>%
+  filter(area != "Northeast Shelf") %>% 
+  group_by(season, area) %>%
+  summarise(
+    min_temp = min(bot_temp)-2,
+    max_temp = max(bot_temp)+2,
+    .groups = "drop")
+
+
+
+# Plot over observed data
+local_btemp <- temp_preds %>% 
+  left_join(actual_range) %>%
+  filter((x < min_temp) == F,
+         (x > max_temp) == F) %>%
+  left_join(select(temp_emtrend, area, season, non_zero)) %>%
+  filter(non_zero) %>%
+  ggplot() +
+  geom_ribbon(aes(x, ymin = conf.low, ymax = conf.high, group = season), alpha = 0.1) +
+  geom_line(
+    aes(x, predicted, color = season), 
+    linewidth = 1) +
+  geom_point(
+    data = peak_chase_model_df,
+    aes(bot_temp, b, color = season),
+    alpha = 0.4,
+    size = 1) +
+  facet_grid(area~., scales = "free", labeller = label_wrap_gen(width = 8)) +
+  scale_color_gmri() +
+  scale_x_continuous(labels = label_number(suffix = deg_c)) +
+  labs(y = "Mass distribution Exponent",
+       x = "Seasonal Bottom Temperature")
+
+
+local_btemp
+```
+
+From this model we see no effect of total landings on the size distribution. 
+
+
+```{r}
+#| label: landings marginal effect plot
+
+
+
+
+# Clean up the plot:
+# Plot the predictions over data
+f_preds <- as.data.frame(
+  ggpredict(
+    full_model_ar, 
+    terms = ~ total_weight_lb * area * season))   %>% 
+  mutate(
+    area = factor(group, levels = area_levels_long_all),
+    season = factor(facet, levels = c("Spring", "Fall")))
+
+
+
+#### Trend Posthoc  ####
+
+# Flag effect fits that are non-significant  ###
+f_emtrend <- emtrends(
+  object = full_model_ar,
+  specs =  ~ area,
+  var = "total_weight_lb",
+  mode = "appx-satterthwaite"
+  ) %>%
+  as_tibble() %>%
+  mutate(
+    zero = 0,
+    non_zero = if_else(between(zero, lower.CL, upper.CL), F, T))
+
+
+# Limit temperature plotting range
+actual_range <- peak_chase_model_df %>%
+  group_by(season, area) %>%
+  summarise(
+    min_f = min(total_weight_lb)-2,
+    max_f = max(total_weight_lb)+2,
+    .groups = "drop")
+
+
+
+# Plot over observed data
+landings_ar_plot <- f_preds %>% 
+  left_join(actual_range) %>%
+  filter((x < min_f) == F,
+         (x > max_f) == F) %>%
+  left_join(select(f_emtrend, area,non_zero)) %>%
+  filter(non_zero) %>%
+  ggplot() +
+  geom_ribbon(aes(x, ymin = conf.low, ymax = conf.high, group = season), alpha = 0.1) +
+  geom_line(
+    aes(x, predicted, color = season), 
+    linewidth = 1) +
+  geom_point(
+    data = peak_chase_model_df,
+    aes(total_weight_lb, b, color = season),
+    alpha = 0.4,
+    size = 1) +
+  facet_grid(area~., scales = "free", labeller = label_wrap_gen(width = 8)) +
+  scale_color_gmri() +
+  scale_x_log10(labels = label_log(base = 10), limits = 10^c(0,10)) +
+  labs(y = "Exponent of ISD",
+       title = "Total Landings (lb.)",
+       x = "Local Seasonal Bottom Temperature Anomaly")
+landings_ar_plot
+
+
+```
+
+
+
+
+### Bottom Temperature Only Model?
+
+If landings don't appear to matter we should remove them and see what the temperature relationship is. These are the results and marginal effects plots from that model.
+
+
+
+```{r}
+# Just drop the random effect part for now
+temp_model_ar <- nlme::gls(
+  b ~ area * season * scale(bot_temp), 
+  data = peak_chase_model_df, 
+  correlation = corAR1(form = ~ est_year | area/season)
+)
+
+
+# # confidence intervals on phi
+# intervals(temp_model_ar)$corStruct
+# 
+# # check the model
+# check_model(temp_model_ar)
+
+# # Collinearity without interactions
+# plot(
+#   check_collinearity(
+#      nlme::gls(
+#         b ~ area + season + scale(bot_temp), 
+#         data = wigley_bmspectra_model_df, 
+#         correlation = corAR1(form = ~ est_year | area/season))
+# ))
+
+# Summary table
+tbl_regression(temp_model_ar)
+```
+
+
+```{r}
+# Clean up the plot:
+# Plot the predictions over data
+mod2_preds <- as.data.frame(
+  ggpredict(
+    temp_model_ar, 
+    terms = ~ bot_temp * area * season))   %>% 
+  mutate(
+    area = factor(group, levels = area_levels_long_all),
+    season = factor(facet, levels = c("Spring", "Fall")))
+
+
+
+#### Trend Posthoc  ####
+
+# Flag effect fits that are non-significant  ###
+mod2_emtrend <- emtrends(
+  object = temp_model_ar,
+  specs =  ~ area * season,
+  var = "bot_temp") %>%
+  as_tibble() %>%
+  mutate(
+    zero = 0,
+    non_zero = if_else(between(zero, lower.CL, upper.CL), F, T))
+
+
+# Limit temperature plotting range
+actual_range <- peak_chase_model_df %>%
+  group_by(season, area) %>%
+  summarise(
+    min_temp = min(bot_temp)-2,
+    max_temp = max(bot_temp)+2,
+    .groups = "drop")
+
+
+
+# Plot over observed data
+local_btemp_results <- mod2_preds %>% 
+  left_join(actual_range) %>%
+  filter((x < min_temp) == F,
+         (x > max_temp) == F) %>%
+  left_join(select(mod2_emtrend, area, season, non_zero)) %>%
+  filter(non_zero) %>%
+  ggplot() +
+  geom_ribbon(aes(x, ymin = conf.low, ymax = conf.high, group = season), alpha = 0.1) +
+  geom_line(
+    aes(x, predicted, color = season), 
+    linewidth = 1) +
+  geom_point(
+    data = peak_chase_model_df,
+    aes(bot_temp, b, color = season),
+    alpha = 0.4,
+    size = 1) +
+  facet_grid(area~., scales = "free", labeller = label_wrap_gen(width = 8)) +
+  scale_color_gmri() +
+  scale_x_continuous(labels = label_number(suffix = deg_c)) +
+  labs(y = "Mass distribution Exponent",
+       x = "Seasonal Bottom Temperature")
+local_btemp_results
+
+```
+
+These results suggest that temperature's relationship on the size distribution is only significant in MAB-Spring. 
+
+My gut says to me that this is not actually the driver, as under closer inspection MAB-Spring has seen a surge in Spiny dogfish. 
+
+It also does not make sense that warming spring temperatures are behind that trend, as almost all of those individuals leave the area during the warmer fall season. 
+
+There is a seasonality to the community composition here that is not fully explainable by this study.
+
+
+
+Do we still see a bergmanns rule? Its weaker now than we saw before.
+
+```{r}
+peak_chase_model_df %>% 
+  ggplot(aes(bot_temp, b, color = season)) +
+  geom_point(aes(shape = survey_area)) +
+  geom_smooth(method = "lm", color = "black") +
+  ggforce::geom_mark_ellipse(aes(fill = season), alpha = 0.1) +
+  scale_color_gmri() +
+  scale_fill_gmri() +
+  scale_x_continuous(labels = label_number(suffix = deg_c)) +
+  guides(
+    shape = guide_legend(nrow = 2),
+    fill = guide_legend(nrow = 2),
+    color = guide_legend(nrow = 2)) +
+  theme(legend.box = "horizontal") +
+  labs(
+    title = "Overall b ~ bottom temperature",
+    subtitle = "Seasonal distributions encircled",
+    shape = "Survey Area",
+    fill = "Season",
+    color = "Season",
+    x = "Bottom Temperature")
 ```
 
