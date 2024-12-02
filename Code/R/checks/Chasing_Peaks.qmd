@@ -777,6 +777,7 @@ x.PLB <- seq(
 x.PLB.length <- length(x.PLB) 
 
 # Y values for plot limits/bounds/predictions from bounded power law pdf
+# From PDF, multiplied by total abundance
 y.PLB         <- (1 - sizeSpectra::pPLB(
   x = x.PLB, 
   b = b.MLE, 
@@ -813,7 +814,7 @@ p_prepped <- actual_vals %>%
   select(comname, wmin_g, wmax_g, lowCount, highCount, countGTEwmin) %>%
   # Get the residuals
   mutate(
-    # Estimated Abundance
+    # Estimated Abundance from pdf
     wmin_estimate = (1 - sizeSpectra::pPLB(x = wmin_g, b = b.MLE, xmin = xmin, xmax = xmax)) * total_abundance,
     wmax_estimate = (1 - sizeSpectra::pPLB(x = wmax_g, b = b.MLE, xmin = xmin, xmax = xmax)) * total_abundance,
     # Residuals
@@ -919,7 +920,7 @@ ggplot(filter(ex_aggs, after_tallest), aes( x = left_lim, y = normalized_abund))
   scale_color_manual(values = c("transparent", gmri_cols("lv orange"))) +
   facet_grid(area ~ season*est_year, scale = "free") +
   labs(
-    y = "Number Density",
+    y = "Abundance Density",
     x = "Body Weight"
   )
 
@@ -1166,6 +1167,7 @@ wig_l2_aggs %>%
   mutate(est_year = as.numeric(est_year)) %>% 
   ggplot(aes(x = left_lim, fill = season)) +
   geom_histogram(alpha = 0.7, position = "dodge", bins = 9) +
+  geom_dotplot(alpha = 0.7, dotsize = 1) +
   scale_fill_gmri() +
   scale_x_continuous(
     labels = label_math(expr = 2^.x),
@@ -1173,7 +1175,7 @@ wig_l2_aggs %>%
     facet_grid(area~season) +
   labs(
     x = "Minimum Body-Size (g)", 
-    y = "Year Count",
+    y = "Count",
     title = "Spectra Peak Location Frequency")
 ```
 
