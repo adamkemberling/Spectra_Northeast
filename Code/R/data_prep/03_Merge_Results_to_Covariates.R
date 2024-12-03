@@ -7,17 +7,21 @@ library(tidyverse)
 
 
 
+# # Larger finfish community - length only
+# finfish_length_spectra <- read_csv(here::here("Data/processed/finfish_length_spectra.csv"))
+# finfish_sizes <- read_csv(here::here("Data/processed/finfish_species_length_summary.csv"))
 
-# Larger finfish community
-finfish_length_spectra <- read_csv(here::here("Data/processed/finfish_length_spectra.csv"))
-finfish_sizes <- read_csv(here::here("Data/processed/finfish_species_length_summary.csv"))
-
-# Wigley Species Community
+# Wigley Species Community - length and weight
 wigley_sizes <- read_csv(here::here("Data/processed/wigley_species_size_summary.csv"))
 wigley_length_spectra <- read_csv(here::here("Data/processed/wigley_species_length_spectra.csv"))
 wigley_bodymass_spectra <- read_csv(here::here("Data/processed/wigley_species_bodymass_spectra.csv"))
 
 # Shifting wmin
+
+# 16g minima
+wigley_16g_spectra <- read_csv(here::here("Data/processed/wigley_species_min16_bodymass_spectra.csv"))
+
+# Dynamic
 wigley_shifting_spectra <- read_csv(here::here("Data/processed/wigley_species_l2peaks_bmspectra.csv"))
 
 
@@ -109,15 +113,12 @@ ecodata::plot_forage_anomaly(report = "NewEngland")
 
 
 
-
-
-
 #### Create Modeling Datasets  ####
 # These weren't intended to be modeled at shelf scale, so shelf gets dropped here
 
-# 1. Large Community Median Length + length spectra
-ffish_medlen_model_df     <- left_join(finfish_sizes, bot_temps) %>% left_join(landings_annual)
-ffish_lenspectra_model_df <- left_join(finfish_length_spectra, bot_temps) %>% left_join(landings_annual)
+# # 1. Large Community Median Length + length spectra
+# ffish_medlen_model_df     <- left_join(finfish_sizes, bot_temps) %>% left_join(landings_annual)
+# ffish_lenspectra_model_df <- left_join(finfish_length_spectra, bot_temps) %>% left_join(landings_annual)
 
 
 # 2. Smaller Community Length/Weight/Spectra
@@ -126,7 +127,15 @@ wigley_lenspectra_model_df <- left_join(wigley_length_spectra, bot_temps) %>% le
 wigley_bmspectra_model_df  <- left_join(wigley_bodymass_spectra, bot_temps) %>% left_join(landings_annual)
 
 
-# 3. Shifting WMIN bodymass spectra
+
+# 3. Minimum weight of 16g
+wigley_16g_bmspectra_model_df <- left_join(wigley_16g_spectra, bot_temps) %>% left_join(landings_annual)
+
+ggplot(wigley_16g_bmspectra_model_df, aes(bot_temp, b, color = season)) + geom_point() + facet_wrap(~survey_area)
+ggplot(wigley_16g_bmspectra_model_df, aes(bot_temp, total_weight_lb, color = season)) + geom_point() + facet_wrap(~survey_area)
+
+
+# 4. Shifting WMIN bodymass spectra
 wigley_shifting_bmspectra_model_df <- left_join(wigley_shifting_spectra, bot_temps) %>% left_join(landings_annual)
 
 
@@ -134,16 +143,21 @@ ggplot(wigley_shifting_bmspectra_model_df, aes(bot_temp, b, color = season)) + g
 ggplot(wigley_shifting_bmspectra_model_df, aes(bot_temp, total_weight_lb, color = season)) + geom_point() + facet_wrap(~survey_area)
 
 
+
 #### Save Modeling Data  ####
 
-# data limited community
-write_csv(ffish_medlen_model_df, here::here("Data/model_ready/large_community_medlength_mod.csv"))
-write_csv(ffish_lenspectra_model_df, here::here("Data/model_ready/large_community_lenspectra_mod.csv"))
+# # length only community
+# write_csv(ffish_medlen_model_df, here::here("Data/model_ready/large_community_medlength_mod.csv"))
+# write_csv(ffish_lenspectra_model_df, here::here("Data/model_ready/large_community_lenspectra_mod.csv"))
 
-# well studied community
+
+# individual weights community
 write_csv(wigley_medlen_model_df, here::here("Data/model_ready/wigley_community_medsize_mod.csv"))
 write_csv(wigley_lenspectra_model_df, here::here("Data/model_ready/wigley_community_lenspectra_mod.csv"))
 write_csv(wigley_bmspectra_model_df, here::here("Data/model_ready/wigley_community_bmspectra_mod.csv"))
+
+# 16g minimum weight
+write_csv(wigley_16g_bmspectra_model_df, here::here("Data/model_ready/wigley_community_16g_bmspectra_mod.csv"))
 
 # shifting wmin
 write_csv(wigley_shifting_bmspectra_model_df, here::here("Data/model_ready/wigley_community_shifting_bmspectra_mod.csv"))

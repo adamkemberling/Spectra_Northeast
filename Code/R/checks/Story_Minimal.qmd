@@ -116,87 +116,95 @@ get_preds_and_trendsignif <- function(mod_x){
 The [Aug draft you developed](https://docs.google.com/document/d/1bOIdQgFZbUavtBXPf570ATz9VjpjVX9Ki5hOqVw71CI/edit) really focused on [comparing regression models to consider drivers based on the fish community size spectrum](https://adamkemberling.github.io/Spectra_Northeast/Code/R/modeling/lm_models/lm_summary_materials.html) as viewed from the perspective of the Wigley species set vs. the full species set.  
 However, I didn't see figures of those spectra in that draft (maybe there are somewhere else and I've lost track).  The recent slide deck really focuses on seasonal differences in the size spectra and influence of temperature.  - KMills
 
-Everything in this markdown uses the size spectra exponent values before I shifted the `wmin` parameter. The `wmin` values are fixed at 1g across all groups.
+Everything in this markdown uses the size spectra exponent values where I shifted the `wmin` parameter to 16g. The `wmin` values are fixed at 16g across all groups.
 
 ```{r}
-#| label: Load Spectra Data and results
+#| label: Load Spectra Data and results 1g min 
 
+
+# # Data used for Wigley estimates
+# wigley_in <- read_csv(here::here("Data/processed/wigley_species_trawl_data.csv")) %>%   
+#   left_join(area_df)
+# 
+#### 1g Cutoff Data  ####
+# # Load the three regional datasets
+# wigley_bmspectra <- read_csv(
+#   here::here("Data/processed/wigley_species_bodymass_spectra.csv")) %>% 
+#   mutate(survey_area = factor(survey_area, levels = area_levels))
+# 
+# 
+# # Load Shelfwide
+# wigley_bmspectra_shelf <- read_csv(
+#   here::here("Data/processed/shelfwide_wigley_species_bodymass_spectra.csv"))
+# 
+# 
+# 
+# # Join them together
+# wigley_bmspectra_all <- bind_rows(wigley_bmspectra, wigley_bmspectra_shelf) %>% 
+#   mutate(metric = "bodymass_spectra",
+#          community = "Wigley Subset",
+#          survey_area = factor(survey_area, levels = area_levels_all)) %>% 
+#   left_join(area_df) %>% 
+#   mutate(area = factor(area, area_levels_long_all))
+
+
+# Modeling datasets
+
+# 
+# # # Model Datasets for Wigley Species Subset
+# wigley_bmspectra_model_df <- read_csv(here::here("Data/model_ready/wigley_community_bmspectra_mod.csv"))
+# 
+# # load shelfwide stuff too
+# wigley_bmspectra_shelf <- read_csv(
+#   here::here("Data/processed/shelfwide_wigley_species_bodymass_spectra.csv"))
+# 
+# # Bottom Temperatures
+# bot_temps <- read_csv(here::here("Data/processed", "trawl_region_seasonal_bottom_temps.csv"))
+# 
+# 
+# # Bolt that on
+# wigley_bmspectra_model_df <- bind_rows(
+#   wigley_bmspectra_model_df,
+#   left_join(
+#     wigley_bmspectra_shelf, 
+#     bot_temps, 
+#     by  = join_by("est_year" == "year", survey_area, season))) %>% 
+#   left_join(area_df) %>% 
+#   mutate(area = if_else(survey_area == "Northeast Shelf", "Northeast Shelf", area),
+#          area = factor(area, levels = area_levels_long_all),
+#   season = fct_rev(season))
+
+```
+
+
+```{r}
+#| label: load 16g wmin results
 
 # Data used for Wigley estimates
-wigley_in <- read_csv(here::here("Data/processed/wigley_species_trawl_data.csv")) %>% left_join(area_df)
+wigley_in <- read_csv(here::here("Data/processed/wigley_species_trawl_data.csv")) %>%   
+  left_join(area_df) 
 
-# Load the three regional datasets
-wigley_bmspectra <- read_csv(
-  here::here("Data/processed/wigley_species_bodymass_spectra.csv")) %>% 
-  mutate(survey_area = factor(survey_area, levels = area_levels))
+# Data used for 16g wmin
+wigley_in_16 <- wigley_in %>% 
+  filter(wmin_g >= 16)
 
-# Load Shelfwide
-wigley_bmspectra_shelf <- read_csv(
-  here::here("Data/processed/shelfwide_wigley_species_bodymass_spectra.csv"))
-
-
-
-# Join them together
-wigley_bmspectra_all <- bind_rows(wigley_bmspectra, wigley_bmspectra_shelf) %>% 
-  mutate(metric = "bodymass_spectra",
-         community = "Wigley Subset",
-         survey_area = factor(survey_area, levels = area_levels_all)) %>% 
-  left_join(area_df) %>% 
-  mutate(area = factor(area, area_levels_long_all))
-
-
-# both metrics+communities
-spectra_results <-  wigley_bmspectra_all %>% 
+# Load the 16g minimum size cutoff
+wigley_bmspectra_model_df <- read_csv(
+  here::here("Data/model_ready/wigley_community_16g_bmspectra_mod.csv")) %>% 
   mutate(
-    survey_area = fct_relevel(survey_area, area_levels_all),
-    metric = fct_rev(metric))
+    metric = "bodymass_spectra",
+    community = "Wigley Subset",
+    survey_area = factor(survey_area, levels = area_levels_all),
+    area = factor(area, area_levels_long_all),
+    season = factor(season, levels = c("Spring", "Fall"))
+  )
+
+
 ```
 
 
-```{r}
-#| label: load the datasets with the modeling covariates
-
-# # Model Datasets for Wigley Species Subset
-wigley_bmspectra_model_df <- read_csv(here::here("Data/model_ready/wigley_community_bmspectra_mod.csv"))
-
-# load shelfwide stuff too
-wigley_bmspectra_shelf <- read_csv(
-  here::here("Data/processed/shelfwide_wigley_species_bodymass_spectra.csv"))
-
-# Bottom Temperatures
-bot_temps <- read_csv(here::here("Data/processed", "trawl_region_seasonal_bottom_temps.csv"))
 
 
-# Bolt that on
-wigley_bmspectra_model_df <- bind_rows(
-  wigley_bmspectra_model_df,
-  left_join(
-    wigley_bmspectra_shelf, 
-    bot_temps, 
-    by  = join_by("est_year" == "year", survey_area, season))) %>% 
-  left_join(area_df) %>% 
-  mutate(area = if_else(survey_area == "Northeast Shelf", "Northeast Shelf", area),
-         area = factor(area, levels = area_levels_long_all),
-  season = fct_rev(season))
-
-```
-
-```{r}
-#| label: load landings data
-
-# From Andy Beet - Crabs removed
-landings_annual <- read_csv(here::here("Data/processed/BEET_GARFO_regional_finfish_landings.csv")) %>% 
-  select(survey_area,
-         est_year = year,
-         total_weight_lb = total_live_lb)
-
-# Get overall landings
-shelf_landings_annual <-  mutate(landings_annual, survey_area = "Northeast Shelf") %>% 
-    group_by(est_year, survey_area) %>% 
-    summarise(total_weight_lb = sum(total_weight_lb, na.rm = T)) %>% 
-    mutate(area = survey_area)
-
-```
 
 
 
@@ -220,7 +228,7 @@ For the figures in part 1: non-zero trends over time have been highlighted in th
 
 ## A. Size Spectra Trends
 
-Size spectra are **steepening in 4 seasonal communities**. Gulf of Maine (Spring and Fall), Georges Bank (Spring), and Southern New England (Spring).
+Size spectra are **steepening in 3 seasonal communities**. Gulf of Maine (Spring), Georges Bank (Spring), and Southern New England (Spring).
 
 The size distribution in the **Mid-Atlantic Bight (Spring) is becoming more shallow**.
 
@@ -232,7 +240,7 @@ The size distribution in the **Mid-Atlantic Bight (Spring) is becoming more shal
 spectra_trend_mod <- gls(
   b ~ scale(est_year) * area * season,
   correlation = corAR1(form = ~ est_year | area/season),
-  data = wigley_bmspectra_all)
+  data = wigley_bmspectra_model_df )
 
 #check_model(spectra_trend_mod)
 # plot(check_collinearity(spectra_trend_mod))
@@ -253,11 +261,11 @@ bmspectra_trend_p <- ggplot() +
     aes(x, ymin = conf.low, ymax = conf.high, fill = season),
     linewidth = 1, alpha = 0.35) +
   geom_point(
-    data = wigley_bmspectra_all,
+    data = wigley_bmspectra_model_df ,
     aes(est_year, b, color = season),
     size = 0.8, alpha = 0.5) +
   geom_ma(
-    data = wigley_bmspectra_all,
+    data = wigley_bmspectra_model_df ,
     aes(est_year, b, color = season, linetype = "5-Year Moving Average"), 
     n = 5, ma_fun = SMA, key_glyph = "timeseries" ) +
   geom_line(
@@ -269,7 +277,7 @@ bmspectra_trend_p <- ggplot() +
   facet_grid(area ~ ., scales = "free") +
   labs(
     x = "Year",
-    y = "Mass Distribution Exponent",
+    y = "Size Distribution Exponent",
     linetype = "Trend",
     color = "Season",
     fill = "Season")
@@ -473,12 +481,27 @@ Looking at different areas within the region, Fall temperatures are increasing a
 
 ```{r}
 # Show plot
-( (wt_plot + theme(strip.text.y = element_blank(),
-   plot.margin = margin(0,2,0,2))) | 
-    (bmspectra_trend_p + theme(strip.text.y = element_blank(),
-   plot.margin = margin(0,2,0,2)))  |
-    temp1 + theme(plot.margin = margin(0,2,0,2)) ) +
-  plot_layout(guides = "collect")
+( 
+    # Size Spectra
+    (bmspectra_trend_p + 
+       labs(title = "") + 
+       theme(
+         strip.text.y = element_blank(),
+         plot.margin = margin(0,2,0,2),
+     legend.position = "none")) |
+     # Median Weight
+     (wt_plot + 
+        theme(
+          strip.text.y = element_blank(),
+          plot.margin = margin(0,2,0,2),
+          legend.position = "none")) |
+     # Bottom Temperature
+     temp1 + 
+      theme(
+        plot.margin = margin(0,2,0,2)) 
+    ) +
+  plot_layout(guides = "collect") & theme(legend.title = element_text(hjust = 0.5),
+                                          legend.title.position = "top")
 ```
 
 :::
@@ -919,7 +942,9 @@ spiny_season_qs <- bind_rows(
 
 ```
 
+
 :::panel-tabset
+
 
 ### Seasonal Size Percentiles
 
@@ -981,6 +1006,7 @@ q90_df_p <-  ggplot() +
     x = "Year", 
     fill = "Community")
 q90_df_p
+
 ```
 
 The above figure shows that the community distribution without dogfish widens in the spring and narrows in the fall.
@@ -1117,16 +1143,8 @@ These visually show a pattern of sustained autocorrelation, but in most instance
 
 ```{r}
 
-# rejoin other shelf-wide things to shelf-wide landings
-shelf_model_df <- wigley_bmspectra_model_df %>% 
-  filter(area == "Northeast Shelf") %>% 
-  select(-total_weight_lb) %>% 
-  left_join(shelf_landings_annual)
-
 # Run Local CCF on Bottom Temperature
 landings_ccf <- wigley_bmspectra_model_df %>% 
-  filter(area != "Northeast Shelf") %>% 
-  bind_rows(shelf_model_df) %>% 
   drop_na(total_weight_lb) %>% 
   unite(col = "regseas", area, season, sep = "XX") %>% 
   split(.$regseas) %>% 
@@ -1440,7 +1458,8 @@ actual_range <- wigley_bmspectra_model_df %>%
   summarise(
     min_temp = min(bot_temp_anom)-2,
     max_temp = max(bot_temp_anom)+2,
-    .groups = "drop")
+    .groups = "drop") %>% 
+  mutate(season = factor(season, levels = c("Spring", "Fall")))
 
 
 
@@ -1464,7 +1483,7 @@ local_btemp_anoms <- mod2_preds %>%
   facet_grid(area~., scales = "free", labeller = label_wrap_gen(width = 8)) +
   scale_color_gmri() +
   scale_x_continuous(labels = label_number(suffix = deg_c)) +
-  labs(y = "Mass distribution Exponent",
+  labs(y = "Size Distribution Exponent",
        x = "Local Seasonal Bottom Temperature Anomaly")
 local_btemp_anoms
 
@@ -1542,7 +1561,8 @@ actual_range <- wigley_bmspectra_model_df %>%
   summarise(
     min_temp = min(bot_temp)-2,
     max_temp = max(bot_temp)+2,
-    .groups = "drop")
+    .groups = "drop")  %>% 
+  mutate(season = factor(season, levels = c("Spring", "Fall")))
 
 
 
@@ -1566,7 +1586,7 @@ local_btemp_results <- mod2_preds %>%
   facet_grid(area~., scales = "free", labeller = label_wrap_gen(width = 8)) +
   scale_color_gmri() +
   scale_x_continuous(labels = label_number(suffix = deg_c)) +
-  labs(y = "Mass distribution Exponent",
+  labs(y = "Size Distribution Exponent",
        x = "Seasonal Bottom Temperature")
 local_btemp_results
 
@@ -1689,10 +1709,8 @@ The landings information is the newer GARFO data obtained from Andy Beet. It was
 
 
 # Plot annual totals
-bind_rows(list(
-  shelf_landings_annual,
-  landings_annual)) %>% 
-  mutate(survey_area = factor(survey_area, levels = area_levels_long_all)) %>% 
+wigley_bmspectra_model_df %>% 
+  filter(season == "Spring") %>% 
   filter(est_year <= 2019) %>% 
   ggplot(aes(est_year, total_weight_lb/1e6)) +
   geom_col(alpha = 0.8) +
@@ -1763,7 +1781,8 @@ actual_range <- wigley_bmspectra_model_df %>%
   summarise(
     min_f = min(total_weight_lb)-2,
     max_f = max(total_weight_lb)+2,
-    .groups = "drop")
+    .groups = "drop")  %>% 
+  mutate(season = factor(season, levels = c("Spring", "Fall")))
 
 
 
@@ -1909,7 +1928,8 @@ actual_range <- wigley_bmspectra_model_df %>%
   summarise(
     min_temp = min(bot_temp)-2,
     max_temp = max(bot_temp)+2,
-    .groups = "drop")
+    .groups = "drop")  %>% 
+  mutate(season = factor(season, levels = c("Spring", "Fall")))
 
 
 
@@ -1933,7 +1953,7 @@ local_btemp <- temp_preds %>%
   facet_grid(area~., scales = "free", labeller = label_wrap_gen(width = 8)) +
   scale_color_gmri() +
   scale_x_continuous(labels = label_number(suffix = deg_c)) +
-  labs(y = "Mass distribution Exponent",
+  labs(y = "Size Distribution Exponent",
        x = "Local Seasonal Bottom Temperature Anomaly")
 local_btemp
 ```
