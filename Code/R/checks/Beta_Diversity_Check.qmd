@@ -1,0 +1,330 @@
+---
+title: "Species Composition / Turnover"
+author: "Adam Kemberling"
+date: "Updated on: `r Sys.Date()`"
+format: 
+  html:
+    toc: true
+    self-contained: true
+    code-fold: true
+execute:
+  echo: true
+  fig-width: 8
+  fig-height: 7
+  message: false
+  warning: false
+editor: source
+---
+
+## Composition Changes in the Wigley Community
+
+Tired of crudely trying to plot that community turnover has occurred, would be much easier to just test it using some dissimilarity scores.
+
+These are following the approach and code of Fredston et al. 2024
+
+
+```{r}
+# Libraries
+library(tidyverse)
+library(gmRi)
+library(scales)
+library(patchwork)
+library(tidyquant)
+library(ggeffects)
+library(ggdist)
+library(ggh4x)
+library(betapart)
+conflicted::conflict_prefer("select", "dplyr")
+conflicted::conflict_prefer("filter", "dplyr")
+
+
+
+# ggplot theme
+theme_set(
+  theme_gmri(
+    axis.line.y = element_line(),
+    axis.ticks.y = element_line(), 
+    rect = element_rect(fill = "white", color = NA),
+    panel.grid.major.y = element_blank(),
+    strip.text.y = element_text(angle  = 0),
+    axis.text.x = element_text(size = 8),
+    axis.text.y = element_text(size = 8),
+    legend.position = "bottom"))
+
+
+
+# labels for factor levels
+area_levels <- c("GoM", "GB", "SNE", "MAB")
+area_levels_long <- c("Gulf of Maine", "Georges Bank", "Southern New England", "Mid-Atlantic Bight")
+area_levels_all <- c("Northeast Shelf", area_levels)
+area_levels_long_all <- c("Northeast Shelf", area_levels_long)
+
+# table to join for swapping shorthand for long-hand names
+area_df <- data.frame(
+  area = area_levels_long_all,
+  survey_area = area_levels_all,
+  area_titles = area_levels_long_all)
+
+
+# Degree symbol
+deg_c <- "\u00b0C"
+
+
+# Data used for Wigley estimates
+wigley_in <- read_csv(here::here("Data/processed/wigley_species_trawl_data.csv")) %>%   
+  left_join(area_df) 
+
+```
+
+
+
+
+```{r}
+#| label: data wrangling
+
+# Reshape to seasonal totals for each year and area
+# reduce it to station totals for abundance/biomass, drop individual measurement rows
+station_totals <- wigley_in %>% 
+  mutate(area = "Northeast Shelf") %>% 
+  bind_rows(wigley_in) %>% 
+  select(year = est_year, season, area, id, comname, abundance, biomass_kg, catchsex) %>% 
+  distinct(year, season, area, id, comname, abundance, biomass_kg, catchsex) 
+
+
+# remove individuals under 16
+station_totals_over16 <- wigley_in %>% 
+  mutate(area = "Northeast Shelf") %>% 
+  bind_rows(wigley_in) %>% 
+  select(year = est_year, season, area, id, comname, abundance, biomass_kg, catchsex) %>% 
+  distinct(year, season, area, id, comname, abundance, biomass_kg, catchsex) 
+
+
+
+# Yearly Abundances
+abundance_totals <- station_totals %>% 
+  group_by(year, season, area, comname) %>% 
+  summarise(
+    abundance = sum(abundance, na.rm = T),
+    abund_cpue = abundance/n_distinct(id),
+    .groups = "drop")
+
+# Create a presence/absence version, 
+# make a wide dataset for dissimilarity matrices
+pres_abs_wide <- abundance_totals %>%
+  mutate(presence = if_else(abundance>0, 1, 0)) %>% 
+  select(-c(abundance, abund_cpue)) %>% 
+  pivot_wider(
+    names_from = "comname", values_from = "presence", values_fill = 0)
+
+# Abundance as Catch/Tow
+abund_wide <- abundance_totals %>% 
+  select(-abundance) %>% 
+  pivot_wider(names_from = "comname", values_from = "abund_cpue", values_fill = 0)
+```
+
+### Beta Dissimilarities
+
+The following community dissimilarity comparisons use the [betapart](https://cran.r-project.org/web/packages/betapart/betapart.pdf) package to evaluate beta diversity metrics.
+
+### Definitions
+
+**Dissimilarity:**
+
+**Dissimilarity Total:**
+
+**Nestedness:**
+
+**Turnover:**
+
+
+
+```{r}
+
+
+#cycle through years and each group
+
+# # Test Area: Gulf of Maine
+# gom_pa    <- filter(pres_abs_wide, area == "Gulf of Maine", season == "Spring")
+# gom_abund <- filter(abund_wide, area == "Gulf of Maine", season == "Spring")
+# meta_cols <- c("year", "season", "area") # Metadata columns
+# #meta_dat  <- select(gom_pa, one_of(meta_cols)) # Metadata 
+# survey_years <- sort(unique(meta_dat$year))
+
+# Groups to operate over
+community_groups <- distinct(pres_abs_wide, area, season) %>% 
+  unite("groupid", area, season, sep = "XX") %>% 
+  split(.$groupid)
+
+
+# Map through them
+area_dissimilarities <- map_dfr(community_groups, function(group_id){
+  group_details <- separate(
+    data.frame("groupid" = group_id), 
+    col = "groupid", into = c("area", "season"), sep = "XX")
+  
+  # Pull Group's Data
+  group_pa <- pres_abs_wide %>% 
+    filter(area == group_details$area[1], 
+           season == group_details$season[1])
+  group_abund <- abund_wide %>% 
+    filter(area == group_details$area[1], 
+           season == group_details$season[1])
+  
+  # Metadata columns
+  meta_cols    <- c("year", "season", "area") 
+  # meta_dat     <- select(group_pa, one_of(meta_cols)) # Metadata 
+  
+  # Years to iterate through
+  survey_years <- sort(unique(pres_abs_wide$year)) %>% 
+    setNames(sort(unique(pres_abs_wide$year)))
+
+  # Get Year 1 Info once*
+  pa_year_ONE <- filter(group_pa, year == survey_years[1]) %>% select(-one_of(meta_cols))
+  abund_year_ONE <- filter(group_abund, year == survey_years[1]) %>% select(-one_of(meta_cols))
+  
+  # Now Iterate over the years
+  map_dfr(survey_years[2:length(survey_years)], function(year_j){
+    
+    # Subset current year, j
+    pa_year <- filter(group_pa, year == year_j)  %>% select(-one_of(meta_cols))
+    abund_year <- filter(group_abund, year == year_j)  %>% select(-one_of(meta_cols))
+    
+    # Subset previous year, j-1
+    pa_year_prev <- filter(group_pa, year == year_j-1)  %>% select(-one_of(meta_cols))
+    abund_year_prev <- filter(group_abund, year == year_j-1)  %>% select(-one_of(meta_cols))
+    
+    # Abundance Dissimilarity: Year j, Year j-1
+    #calculate temporal change in community composition using beta.temp using abundance data (bray)
+    bray_dissimilarity <- beta.pair.abund(
+      bind_rows(
+        abund_year_prev, 
+        abund_year),  
+      index.family = "bray")
+    
+    # Presence Absence Dissimilarity: Year j, Year j-1
+    #calculate temporal change in community composition using beta.pair using occurrence data (jaccard)
+    jaccard_dissimilarity <- beta.pair(
+      bind_rows(
+        pa_year_prev,
+        pa_year),  
+      index.family = "jaccard")
+    
+    # Abundance Dissimilarity: Year j, Year ONE
+    bray_dissimilarity.yearone <- beta.pair.abund(
+      bind_rows(
+        abund_year_ONE, 
+        abund_year),  
+      index.family = "bray")
+    
+    # Presence Absence Dissimilarity: Year j, Year ONE
+    jaccard_dissimilarity.yearone <- beta.pair(
+      bind_rows(
+        pa_year_ONE, 
+        pa_year),  
+      index.family = "jaccard")
+    
+    
+    # Raw richness: 
+    # current and previous year
+    richness <- pa_year %>% 
+      pivot_longer(cols = everything(), names_to = "comname", values_to = "presence") %>% 
+      pull(presence) %>% sum()
+    richness_prev <- pa_year_prev %>% 
+      pivot_longer(cols = everything(), names_to = "comname", values_to = "presence") %>% 
+      pull(presence) %>% sum()
+    
+    
+    # For jaccard, beta.pair returns list of 3 values
+    # 1. turnover-fraction of Jaccard pair-wise dissimilarity
+    # 2. nestedness-fraction of Jaccard pair-wise dissimilarity
+    # 3. Jaccard pair-wise dissimilarity (a monotonic transformation of beta diversity)
+    
+    
+    # For bray, beta.pair.abund returns list of 3 values
+    # 1. dissimilarity derived from balanced variation in abundance between sites
+    # 2. dissimilarity derived from unidirectional abundance gradients
+    # 3. total abundance-based dissimilarity between sites, measured as the Bray-Curtis index
+    
+    # Combine them
+    dissim <- tibble(
+      "jaccard_dissimilarity_turnover"                 = jaccard_dissimilarity[[1]][1],
+      "jaccard_dissimilarity_nestedness"               = jaccard_dissimilarity[[2]][1],
+      "jaccard_dissimilarity_total"                    = jaccard_dissimilarity[[3]][1],
+      "jaccard_dissimilarity_total_compare_first_year" = jaccard_dissimilarity.yearone[[3]][1],
+      "bray_dissimilarity_turnover"                    = bray_dissimilarity[[1]][1],
+      "bray_dissimilarity_nestedness"                  = bray_dissimilarity[[2]][1],
+      "bray_dissimilarity_total"                       = bray_dissimilarity[[3]][1],
+      "bray_dissimilarity_total_compare_first_year"    = bray_dissimilarity.yearone[[3]][1],
+      "delta_richness"                                 = richness-richness_prev,
+      "richness_percent_change"                        = (richness-richness_prev)/richness_prev)
+    return(dissim)
+    
+  # Return Each Year Comparison as a table
+  }, .id = "year")
+  
+  # Return that table for each group
+}, 
+.id = "groupid") %>% 
+  # Rebuild the group information columns
+  separate(col = "groupid", into = c("area", "season"), sep = "XX")
+
+```
+
+### Plotting Beta Diversity
+
+The following plot shows changes over time in 4 beta-diversity metrics for spring and fall communities of different regions along the Northeast Shelf
+
+```{r}
+
+# Pull one group to look at
+dissim_long <- area_dissimilarities %>%  
+  select(-contains("richness")) %>% 
+  pivot_longer(
+    cols = -one_of(c("year", "area", "season")), 
+    names_to = "beta_diversity_metric", 
+    values_to = "value") %>% 
+  mutate(
+    type = if_else(str_detect(beta_diversity_metric, "jaccard"), "jaccard - Presence/Absence", "bray - Abundance"),
+    metric = str_remove_all(beta_diversity_metric, "jaccard_|bray_"),
+    metric = str_replace_all(metric, "_", " "),
+    area = factor(area, levels = area_levels_long_all),
+    season = factor(season, levels = c("Spring", "Fall")))
+
+# Pull one Group to Plot
+# test_dissim <- filter(dissim_long, area == "Georges Bank")
+
+dissim_long %>% 
+ggplot() +
+  geom_point(aes(x = as.numeric(year), y = value, color = type), size = 0.5, alpha = 0.6) +
+  geom_ma(aes(x = as.numeric(year), y = value, color = type), linetype = 1, 
+    n = 5, ma_fun = SMA, key_glyph = "timeseries" ) +
+  scale_color_gmri() +
+  facet_nested(area~metric*season, scales = "free", 
+               labeller = label_wrap_gen(width = 14)) +
+  theme_classic() +
+  labs(x = "Year")
+
+
+```
+
+
+
+```{r}
+dissim_long %>% #distinct(metric)
+  filter(metric != "dissimilarity total") %>% 
+ggplot() +
+  geom_point(aes(x = as.numeric(year), y = value, color = type), size = 0.5, alpha = 0.6) +
+  geom_ma(aes(x = as.numeric(year), y = value, color = type), linetype = 1, 
+    n = 5, ma_fun = SMA, key_glyph = "timeseries" ) +
+  scale_color_gmri() +
+  facet_nested(area~metric*season, scales = "free", 
+               labeller = label_wrap_gen(width = 14)) +
+  theme_classic() +
+  labs(x = "Year")
+```
+
+
+
+### Seasonality
+
+Spring vs. Fall beta diversity for each area?

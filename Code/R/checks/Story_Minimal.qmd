@@ -363,17 +363,17 @@ wt_plot <- size_long %>%
   geom_ma(
     aes(est_year, val, color = season, linetype = "5-Year Moving Average"), 
     n = 5, ma_fun = SMA, key_glyph = "timeseries") +
-  geom_line(
-    data = filter(size_trend_predictions, metric == "med_wt_kg", non_zero == TRUE),
-    aes(x, predicted, color = season, linetype = "Significant Trend"),
-    linewidth = 1, alpha = 1) +
+  # geom_line(
+  #   data = filter(size_trend_predictions, metric == "med_wt_kg", non_zero == TRUE),
+  #   aes(x, predicted, color = season, linetype = "Significant Trend"),
+  #   linewidth = 1, alpha = 1) +
   scale_fill_gmri() +
   scale_color_gmri() +
   facet_grid(area ~ .,
              scales = "free")  +
   labs(
     x = "Year",
-    y = "Median Weight (kg)",
+    y = "Median Body Weight (kg)",
     color = "Season",
     linetype = "Trend",
     fill = "Season")
@@ -381,6 +381,72 @@ wt_plot <- size_long %>%
 wt_plot
 
 ```
+
+```{r}
+#| label: median weight >16g
+
+
+
+# # Do them separately
+# wigley_16g_season_qs <- bind_rows(
+#     mutate(wigley_in_16, 
+#            area = "Northeast Shelf"),
+#     wigley_in_16) %>% 
+#   unite(col = "group_var", area, est_year, season, sep = "X", remove = T) %>% 
+#   split(.$group_var) %>% 
+#   map_dfr(function(x,y){
+#     
+#     DescTools::Quantile(
+#       # x$length_cm, 
+#       x$ind_weight_kg,
+#       weights = x$numlen_adj, 
+#       probs = c(0.1, 0.5, 0.90)) %>% 
+#       t() %>% 
+#       as_tibble() 
+#   }, .id = "group_var") %>% 
+#   separate(group_var, into = c("area", "est_year", "season"), sep = "X") %>% 
+#   mutate(
+#     est_year = as.numeric(est_year),
+#     area = factor(area, levels = area_levels_long_all),
+#     season = factor(season, levels = c("Spring", "Fall"))) %>% 
+#   arrange(area) %>% 
+#   pivot_longer(
+#     cols = -c(area, est_year, season), 
+#     names_to = "Percentile", 
+#     values_to = "biomass_kg")  %>% 
+#   group_by(area, season, Percentile) %>% 
+#   arrange(est_year) %>% 
+#   mutate(kg_roll = zoo::rollapply(biomass_kg, 5, mean, na.rm = T, align = "right",  fill = NA))
+# 
+# 
+# 
+# 
+#  ggplot() +
+#   geom_line(
+#     data = filter(wigley_16g_season_qs, Percentile == "50%"),
+#     aes(x = est_year, y = kg_roll, color = season),
+#     alpha = 0.6) +
+#   scale_color_gmri() +
+#   scale_x_continuous(expand = expansion(add = c(0,0))) +
+#   scale_y_continuous(labels = label_number(suffix = "kg")) +
+#   #coord_flip() +
+#   guides(
+#     linetype = guide_legend(title.position = "top", title.hjust = 0.5),
+#     color = guide_legend(
+#       title.position = "top",
+#       title.hjust = 0.5,
+#       nrow = 2)) +
+#   theme(plot.margin = margin(0,0,0,0),
+#         strip.background = element_rect(color = "white", linewidth = 0.2)) +
+#   facet_grid(area~.) +
+#   labs(
+#     y = "Median Body Weight", 
+#     x = "Year", 
+#     fill = "Community",
+#     title = "Median Weight, Individuals Over 16g")
+
+```
+
 
 **Notes:**
 
@@ -477,37 +543,10 @@ Looking at different areas within the region, Fall temperatures are increasing a
 
 
 
-## D. All Trends Figure
-
-```{r}
-# Show plot
-( 
-    # Size Spectra
-    (bmspectra_trend_p + 
-       labs(title = "") + 
-       theme(
-         strip.text.y = element_blank(),
-         plot.margin = margin(0,2,0,2),
-     legend.position = "none")) |
-     # Median Weight
-     (wt_plot + 
-        theme(
-          strip.text.y = element_blank(),
-          plot.margin = margin(0,2,0,2),
-          legend.position = "none")) |
-     # Bottom Temperature
-     temp1 + 
-      theme(
-        plot.margin = margin(0,2,0,2)) 
-    ) +
-  plot_layout(guides = "collect") & theme(legend.title = element_text(hjust = 0.5),
-                                          legend.title.position = "top")
-```
-
-:::
 
 
-## E. Small/Large Fish Indices
+
+## D. Small/Large Fish Indices
 
 
 **NOTE:**
@@ -646,11 +685,11 @@ lfi_p <- ggplot(lfi) +
   scale_color_gmri() +
   scale_y_continuous(
     labels = label_percent(), 
-    expand = expansion(add = c(0,0.05))) +
+    expand = expansion(add = c(0,0))) +
   facet_grid(area~., scales = "fixed", labeller = label_wrap_gen(width = 8)) +
   labs(
     x = "Year",
-    y = "",
+    y = "Annual Abundance Fraction",
     subtitle = "Large Fish Index",
     fill = "Season",
     color = "Season",
@@ -667,7 +706,319 @@ From these figures we can see that there is a general pattern where larger indiv
 
 There is something strange going on with GB in the 2000's where the LFI increases for a time, but this is no longer the case.
 
+## E. Community Dissimilarity
 
+
+```{r}
+#| label: data wrangling for dissimilarity
+
+library(betapart)
+
+# Reshape to seasonal totals for each year and area
+# reduce it to station totals for abundance/biomass, drop individual measurement rows
+station_totals <- wigley_in %>% 
+  mutate(area = "Northeast Shelf") %>% 
+  bind_rows(wigley_in) %>% 
+  select(year = est_year, season, area, id, comname, abundance, biomass_kg, catchsex) %>% 
+  distinct(year, season, area, id, comname, abundance, biomass_kg, catchsex) 
+
+
+# remove individuals under 16
+station_totals_over16 <- wigley_in %>% 
+  mutate(area = "Northeast Shelf") %>% 
+  bind_rows(wigley_in) %>% 
+  select(year = est_year, season, area, id, comname, abundance, biomass_kg, catchsex) %>% 
+  distinct(year, season, area, id, comname, abundance, biomass_kg, catchsex) 
+
+
+
+# Yearly Abundances
+abundance_totals <- station_totals %>% 
+  group_by(year, season, area, comname) %>% 
+  summarise(
+    abundance = sum(abundance, na.rm = T),
+    abund_cpue = abundance/n_distinct(id),
+    .groups = "drop")
+
+# Create a presence/absence version, 
+# make a wide dataset for dissimilarity matrices
+pres_abs_wide <- abundance_totals %>%
+  mutate(presence = if_else(abundance>0, 1, 0)) %>% 
+  select(-c(abundance, abund_cpue)) %>% 
+  pivot_wider(
+    names_from = "comname", values_from = "presence", values_fill = 0)
+
+# Abundance as Catch/Tow
+abund_wide <- abundance_totals %>% 
+  select(-abundance) %>% 
+  pivot_wider(names_from = "comname", values_from = "abund_cpue", values_fill = 0)
+```
+
+
+
+```{r}
+
+
+# Cycle through years and each group
+
+# # Test Area: Gulf of Maine
+# gom_pa    <- filter(pres_abs_wide, area == "Gulf of Maine", season == "Spring")
+# gom_abund <- filter(abund_wide, area == "Gulf of Maine", season == "Spring")
+# meta_cols <- c("year", "season", "area") # Metadata columns
+# #meta_dat  <- select(gom_pa, one_of(meta_cols)) # Metadata 
+# survey_years <- sort(unique(meta_dat$year))
+
+# Groups to operate over
+community_groups <- distinct(pres_abs_wide, area, season) %>% 
+  unite("groupid", area, season, sep = "XX") %>% 
+  split(.$groupid)
+
+
+# Map through them
+area_dissimilarities <- map_dfr(community_groups, function(group_id){
+  group_details <- separate(
+    data.frame("groupid" = group_id), 
+    col = "groupid", into = c("area", "season"), sep = "XX")
+  
+  # Pull Group's Data
+  group_pa <- pres_abs_wide %>% 
+    filter(area == group_details$area[1], 
+           season == group_details$season[1])
+  group_abund <- abund_wide %>% 
+    filter(area == group_details$area[1], 
+           season == group_details$season[1])
+  
+  # Metadata columns
+  meta_cols    <- c("year", "season", "area") 
+  # meta_dat     <- select(group_pa, one_of(meta_cols)) # Metadata 
+  
+  # Years to iterate through
+  survey_years <- sort(unique(pres_abs_wide$year)) %>% 
+    setNames(sort(unique(pres_abs_wide$year)))
+
+  # Get Year 1 Info once*
+  pa_year_ONE <- filter(group_pa, year == survey_years[1]) %>% select(-one_of(meta_cols))
+  abund_year_ONE <- filter(group_abund, year == survey_years[1]) %>% select(-one_of(meta_cols))
+  
+  # Now Iterate over the years
+  map_dfr(survey_years[2:length(survey_years)], function(year_j){
+    
+    # Subset current year, j
+    pa_year <- filter(group_pa, year == year_j)  %>% select(-one_of(meta_cols))
+    abund_year <- filter(group_abund, year == year_j)  %>% select(-one_of(meta_cols))
+    
+    # Subset previous year, j-1
+    pa_year_prev <- filter(group_pa, year == year_j-1)  %>% select(-one_of(meta_cols))
+    abund_year_prev <- filter(group_abund, year == year_j-1)  %>% select(-one_of(meta_cols))
+    
+    # Abundance Dissimilarity: Year j, Year j-1
+    #calculate temporal change in community composition using beta.temp using abundance data (bray)
+    bray_dissimilarity <- beta.pair.abund(
+      bind_rows(
+        abund_year_prev, 
+        abund_year),  
+      index.family = "bray")
+    
+    # Presence Absence Dissimilarity: Year j, Year j-1
+    #calculate temporal change in community composition using beta.pair using occurrence data (jaccard)
+    jaccard_dissimilarity <- beta.pair(
+      bind_rows(
+        pa_year_prev,
+        pa_year),  
+      index.family = "jaccard")
+    
+    # Abundance Dissimilarity: Year j, Year ONE
+    bray_dissimilarity.yearone <- beta.pair.abund(
+      bind_rows(
+        abund_year_ONE, 
+        abund_year),  
+      index.family = "bray")
+    
+    # Presence Absence Dissimilarity: Year j, Year ONE
+    jaccard_dissimilarity.yearone <- beta.pair(
+      bind_rows(
+        pa_year_ONE, 
+        pa_year),  
+      index.family = "jaccard")
+    
+    
+    # Raw richness: 
+    # current and previous year
+    richness <- pa_year %>% 
+      pivot_longer(cols = everything(), names_to = "comname", values_to = "presence") %>% 
+      pull(presence) %>% sum()
+    richness_prev <- pa_year_prev %>% 
+      pivot_longer(cols = everything(), names_to = "comname", values_to = "presence") %>% 
+      pull(presence) %>% sum()
+    
+    
+    # For jaccard, beta.pair returns list of 3 values
+    # 1. turnover-fraction of Jaccard pair-wise dissimilarity
+    # 2. nestedness-fraction of Jaccard pair-wise dissimilarity
+    # 3. Jaccard pair-wise dissimilarity (a monotonic transformation of beta diversity)
+    
+    
+    # For bray, beta.pair.abund returns list of 3 values
+    # 1. dissimilarity derived from balanced variation in abundance between sites
+    # 2. dissimilarity derived from unidirectional abundance gradients
+    # 3. total abundance-based dissimilarity between sites, measured as the Bray-Curtis index
+    
+    # Combine them
+    dissim <- tibble(
+      "jaccard_dissimilarity_turnover"                 = jaccard_dissimilarity[[1]][1],
+      "jaccard_dissimilarity_nestedness"               = jaccard_dissimilarity[[2]][1],
+      "jaccard_dissimilarity_total"                    = jaccard_dissimilarity[[3]][1],
+      "jaccard_dissimilarity_total_compare_first_year" = jaccard_dissimilarity.yearone[[3]][1],
+      "bray_dissimilarity_turnover"                    = bray_dissimilarity[[1]][1],
+      "bray_dissimilarity_nestedness"                  = bray_dissimilarity[[2]][1],
+      "bray_dissimilarity_total"                       = bray_dissimilarity[[3]][1],
+      "bray_dissimilarity_total_compare_first_year"    = bray_dissimilarity.yearone[[3]][1],
+      "delta_richness"                                 = richness-richness_prev,
+      "richness_percent_change"                        = (richness-richness_prev)/richness_prev)
+    return(dissim)
+    
+  # Return Each Year Comparison as a table
+  }, .id = "year")
+  
+  # Return that table for each group
+}, 
+.id = "groupid") %>% 
+  # Rebuild the group information columns
+  separate(col = "groupid", into = c("area", "season"), sep = "XX")
+
+```
+
+
+
+```{r}
+#| label: year 1 dissimilarity plot
+# Plot the beta diversity change relative to y1
+
+
+# Pull one group to look at
+dissim_long <- area_dissimilarities %>%  
+  select(-contains("richness")) %>% 
+  pivot_longer(
+    cols = -one_of(c("year", "area", "season")), 
+    names_to = "beta_diversity_metric", 
+    values_to = "value") %>% 
+  mutate(
+    type = if_else(str_detect(beta_diversity_metric, "jaccard"), "jaccard - Presence/Absence", "bray - Abundance"),
+    metric = str_remove_all(beta_diversity_metric, "jaccard_|bray_"),
+    metric = str_replace_all(metric, "_", " "),
+    area = factor(area, levels = area_levels_long_all),
+    season = factor(season, levels = c("Spring", "Fall")))
+```
+
+
+```{r}
+# Plot the abundance based metrics
+dissim_long %>% 
+  filter(str_detect(type, "bray")) %>% 
+  ggplot() +
+    geom_point(
+      aes(x = as.numeric(year), y = value, color = season), 
+      size = 0.5, alpha = 0.6) +
+    geom_ma(aes(x = as.numeric(year), y = value, color = season), linetype = 1, 
+      n = 5, ma_fun = SMA, key_glyph = "timeseries" ) +
+    scale_color_gmri() +
+    facet_nested(
+      area~type*metric, scales = "free", 
+      labeller = label_wrap_gen(width = 14)) +
+    labs(
+      y = "Bray-Curtis Dissimilarity\nfrom Abundance Matrices",
+      x = "Year", color = "Season")
+
+```
+
+
+```{r}
+# Plot the presence-absence versions
+dissim_long %>% 
+  filter(str_detect(type, "bray")) %>% 
+  ggplot() +
+    geom_point(
+      aes(x = as.numeric(year), y = value, color = season), 
+      size = 0.5, alpha = 0.6) +
+    geom_ma(aes(x = as.numeric(year), y = value, color = season), linetype = 1, 
+      n = 5, ma_fun = SMA, key_glyph = "timeseries" ) +
+    scale_color_gmri() +
+    facet_nested(
+      area~type*metric, scales = "free", 
+      labeller = label_wrap_gen(width = 14)) +
+    labs(
+      y = "Bray-Curtis Dissimilarity\nfrom Abundance Matrices",
+      x = "Year", color = "Season")
+```
+
+
+```{r}
+#| label: year 1 dissimilarity plot
+# Plot the beta diversity change relative to y1
+
+# Just plot the change vs. 1970
+bray_plot <- dissim_long %>% 
+  filter(
+    metric == "dissimilarity total compare first year",
+    str_detect(type, "bray")) %>% 
+  ggplot() +
+    geom_point(
+      aes(x = as.numeric(year), y = value, color = season), 
+      size = 0.5, alpha = 0.6) +
+    geom_ma(aes(x = as.numeric(year), y = value, color = season), linetype = 1, 
+      n = 5, ma_fun = SMA, key_glyph = "timeseries" ) +
+    scale_color_gmri() +
+    facet_grid(
+      area~., scales = "fixed", 
+      labeller = label_wrap_gen(width = 14)) +
+    labs(
+      y = "Bray-Curtis Dissimilarity to 1970",
+      x = "Year", color = "Season")
+
+```
+
+
+## F. All Trends Figure
+
+```{r}
+# Show plot
+( 
+    # Size Spectra
+    (bmspectra_trend_p + 
+       labs(title = "") + 
+       theme(
+         strip.text.y = element_blank(),
+         plot.margin = margin(0,2,0,2),
+     legend.position = "none")) |
+     # # Median Weight
+     # (wt_plot + 
+     #    theme(
+     #      strip.text.y = element_blank(),
+     #      plot.margin = margin(0,2,0,2),
+     #      legend.position = "none")) |
+      # Large Fish Index
+      (lfi_p  + 
+        theme(
+          strip.text.y = element_blank(),
+          plot.margin = margin(0,2,0,2),
+          legend.position = "none") +
+         labs(
+           y = "LFI", title = "", subtitle = "")) |
+     # Bottom Temperature
+     # temp1 + 
+     #  theme(
+     #    plot.margin = margin(0,2,0,2))
+      # Community Dissimilarity
+    (bray_plot  + 
+        theme(
+          plot.margin = margin(0,2,0,2)))
+    ) +
+  plot_layout(guides = "collect") & 
+  theme(legend.title = element_text(hjust = 0.5),
+                                          legend.title.position = "top")
+```
+
+:::
 
 
 ##  Upper Percentile Drift of the Size distribution 
