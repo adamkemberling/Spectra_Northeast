@@ -1,0 +1,754 @@
+---
+title: "MAB Community Size Demo"
+author: "Adam Kemberling"
+date: "Updated on: `r Sys.Date()`"
+format: 
+  html:
+    toc: true
+    self-contained: true
+    code-fold: true
+execute:
+  echo: true
+  fig-width: 8
+  fig-height: 7
+  message: false
+  warning: false
+editor: source
+---
+
+
+
+
+```{r}
+# Libraries
+library(tidyverse)
+library(gmRi)
+library(scales)
+library(patchwork)
+library(tidyquant)
+library(rnaturalearth)
+library(sf)
+library(matrixStats)
+library(gt)
+
+conflicted::conflict_prefer("select", "dplyr")
+conflicted::conflict_prefer("filter", "dplyr")
+
+
+
+# ggplot theme
+theme_set(
+  theme_gmri(
+    axis.line.y = element_line(),
+    axis.ticks.y = element_line(), 
+    rect = element_rect(fill = "white", color = NA),
+    panel.grid.major.y = element_blank(),
+    strip.text.y = element_text(angle  = 0),
+    axis.text.x = element_text(size = 8),
+    axis.text.y = element_text(size = 8),
+    legend.position = "bottom"))
+
+
+
+# labels for factor levels
+area_levels <- c("GoM", "GB", "SNE", "MAB")
+area_levels_long <- c("Gulf of Maine", "Georges Bank", "Southern New England", "Mid-Atlantic Bight")
+area_levels_all <- c("Northeast Shelf", area_levels)
+area_levels_long_all <- c("Northeast Shelf", area_levels_long)
+
+# table to join for swapping shorthand for long-hand names
+area_df <- data.frame(
+  area = area_levels_long_all,
+  survey_area = area_levels_all,
+  area_titles = area_levels_long_all)
+
+
+# Degree symbol
+deg_c <- "\u00b0C"
+
+
+# Data used for Wigley estimates
+wigley_in <- read_csv(here::here("Data/processed/wigley_species_trawl_data.csv")) %>%   
+  left_join(area_df)  %>% 
+  mutate(
+    survey_area = factor(survey_area, levels = area_levels_all),
+    area = factor(area, levels = area_levels_long_all),
+    season = factor(season, levels = c("Spring", "Fall")))
+
+
+
+# Data for Mid-Atlantic Bight
+mab <- filter(wigley_in, survey_area== "MAB")
+
+```
+
+
+
+# Median Size
+
+This is the median individual weight, arrived at using `matrixStats::weightedMedian` using one of two different vectors for body-size (2): 
+ 1. `length_cm` the length in cm    
+ 2. `ind_weight_g` the estimated weight in grams (Wigley length-weight estimate). 
+ 
+The function also takes a second argument for weights: `numlen` which is the number of individuals at that size.
+
+```{r}
+
+med_size <- wigley_in %>% 
+  #filter(ind_weight_g > 12) %>% 
+  group_by(area, est_year, season) %>% 
+  summarise(
+    median_length = weightedMedian(x = length_cm, w = numlen, na.rm = T),
+    median_weight = weightedMedian(x = ind_weight_g, w = numlen, na.rm = T),
+    .groups = "drop")  
+
+
+len_plot <- med_size %>%
+  ggplot(aes(est_year, median_length, color = season)) +
+  geom_line(linewidth = 1, alpha = 0.8) +
+  facet_grid(area~., scales = "free") +
+  scale_color_gmri() +
+  labs(title = "Median Length", y = "Length (cm)", x = "Year")
+
+
+wt_plot <- med_size %>%
+  ggplot(aes(est_year, median_weight, color = season)) +
+  geom_line(linewidth = 1) +
+  facet_grid(area~., scales = "free") +
+  scale_color_gmri() +
+  labs(title = "Median Weight", y = "Weight (g)", x = "Year")
+
+
+len_plot | wt_plot
+```
+
+# Size Spectra
+
+There's been way too many iterations of this. The absolute values definitely change under minor tuning of input data AND fit parameters. The general vibe of the long-term changes are similar undwer these tunings, but they do change as well:
+
+### Using `numlen_adj`
+
+Until this last week (!) I had been using `numlen_adj` in an effort to counteract the survey change in 2008.
+
+I have reflected on this, and I no longer think its helpful to do that for this application. Potentially creating more confusion than resolving.
+
+```{r}
+numlen_adj_1g <- bind_rows(
+  read_csv(here::here("Data/processed/wigley_species_bodymass_spectra.csv")),
+  read_csv(here::here("Data/processed/shelfwide_wigley_species_bodymass_spectra.csv"))
+)
+numlen_adj_16g <- read_csv(here::here("Data/processed/wigley_species_min16_bodymass_spectra.csv"))
+
+
+
+numlen_adj_1g_plot <- numlen_adj_1g %>% 
+  filter(season %in% c("Spring", "Fall")) %>% 
+  mutate(yr_num = as.numeric(as.character(est_year)),
+         survey_area = factor(survey_area, area_levels_all)) %>% 
+  ggplot(aes(yr_num, b, color = season)) +
+  geom_point(size = 1, alpha = 0.6) +
+  geom_ma(aes(linetype = "5-Year Moving Average"),n = 5, ma_fun = SMA) +
+  geom_smooth(method = "lm", linewidth = 1, se = F, 
+              aes(linetype = "Regression Fit")) +
+  facet_wrap(~survey_area, ncol = 2) +
+  scale_color_gmri() +
+  labs(title = "1g Min Size - numlen_adj",
+       subtitle = "Fixed xmin = 1g, xmax = max(ind_weight_g)",
+       y = "b",
+       x = "Year",
+       color = "Season")
+
+
+
+
+
+
+# And do a plot check
+numlen_adj_16g_plot <- numlen_adj_16g %>% 
+  filter(season %in% c("Spring", "Fall")) %>% 
+  mutate(
+    yr_num = as.numeric(as.character(est_year)),
+    survey_area = factor(
+      survey_area, 
+      levels = c("Northeast Shelf", "GoM", "GB", "SNE", "MAB"))) %>% 
+  
+  ggplot(aes(yr_num, b, color = season)) +
+  geom_point(size = 1, alpha = 0.6) +
+  geom_ma(aes(linetype = "5-Year Moving Average"),n = 5, ma_fun = SMA) +
+  geom_smooth(
+    method = "lm", 
+    linewidth = 1, 
+    se = F, 
+    aes(linetype = "Regression Fit")) +
+  facet_wrap(~survey_area, ncol = 2, scales = "free") +
+  scale_color_gmri() +
+  labs(title = "16g Min Size - numlen_adj",
+       subtitle = "Fixed xmin = 16g, xmax = max(ind_weight_g)",
+       y = "b",
+       x = "Year",
+       color = "Season")
+
+
+
+
+
+(numlen_adj_1g_plot | numlen_adj_16g_plot) + plot_layout(guides = "collect")
+
+```
+
+
+### Using `numlen`
+
+My thinking on using `numlen` is that its the true representation of the size distribution sampled. `numlen_adj` aims to correct for survey changes, but those changes are only applied to the main species of the survey. I don't want to have to explain the methods or explore the implications of adjusting total abundance for some species and not all.
+
+This seems cleaner.
+
+```{r}
+# Weight Based
+numlen_1g <- bind_rows(
+  read_csv(here::here("Data/processed/wigley_species_bodymass_spectra_numlen.csv")),
+  read_csv(here::here("Data/processed/shelfwide_wigley_species_bodymass_spectra_numlen.csv"))
+)
+
+# universal 16g wmin:
+numlen_16g <- read_csv(here::here("Data/processed/wigley_species_min16_bodymass_spectra.csv"))
+
+
+
+
+numlen_1g_plot <- numlen_1g %>% 
+  filter(season %in% c("Spring", "Fall")) %>% 
+  mutate(yr_num = as.numeric(as.character(est_year)),
+         survey_area = factor(survey_area, area_levels_all)) %>% 
+  ggplot(aes(yr_num, b, color = season)) +
+  geom_point(size = 1, alpha = 0.6) +
+  geom_ma(aes(linetype = "5-Year Moving Average"),n = 5, ma_fun = SMA) +
+  geom_smooth(method = "lm", linewidth = 1, se = F, 
+              aes(linetype = "Regression Fit")) +
+  facet_wrap(~survey_area, ncol = 2) +
+  scale_color_gmri() +
+  labs(title = "1g Min Size - numlen",
+       subtitle = "Fixed xmin = 1g, xmax = max(ind_weight_g)",
+       y = "b",
+       x = "Year",
+       color = "Season")
+
+
+# And do a plot check
+numlen_16g_plot <- numlen_16g %>% 
+  filter(season %in% c("Spring", "Fall")) %>% 
+  mutate(
+    yr_num = as.numeric(as.character(est_year)),
+    survey_area = factor(
+      survey_area, 
+      levels = c("Northeast Shelf", "GoM", "GB", "SNE", "MAB"))) %>% 
+  
+  ggplot(aes(yr_num, b, color = season)) +
+  geom_point(size = 1, alpha = 0.6) +
+  geom_ma(aes(linetype = "5-Year Moving Average"),n = 5, ma_fun = SMA) +
+  geom_smooth(
+    method = "lm", 
+    linewidth = 1, 
+    se = F, 
+    aes(linetype = "Regression Fit")) +
+  facet_wrap(~survey_area, ncol = 2, scales = "free") +
+  scale_color_gmri() +
+  labs(title = "16g Min Size - numlen",
+       subtitle = "Fixed xmin = 16g, xmax = max(ind_weight_g)",
+       y = "b",
+       x = "Year",
+       color = "Season")
+
+
+
+
+(numlen_1g_plot | numlen_16g_plot) + plot_layout(guides = "collect")
+
+```
+
+
+
+
+# Mid-Atlantic Community Size Distribution Diagnostics
+
+The MAB region has been a major source of doubt and questions about whether we are measuring "a community" in a meaningful way that is informative when viewed on long time scales.
+
+For this exploration, I am going to limit the data to the Mid-Atlantic Bight. 
+
+I won't be adjusting any abundances for gear changes, because we're interested in the distribution of size, and upon reflection 
+
+I think we are creating more headache than we are solving with the `numlen_adj` which adjusts total tow abundance by species, but preserves the size distribution within the species. 
+
+The correction factors that the `numlen_adj` adjustments aim to match are only applied to some species, so we are modifying their relative abundances to other species which do not have their own correction factors.
+
+
+## Let's Get Our Bearings
+
+There is a wealth of information in the trawl dataset, however it is also a very large region and I think its important to understand what level of spatio-temporal coverage we have in terms of samples/area in each season.
+
+
+### Typical Effort
+
+Trawl sampling occurs two times a year, in the spring and fall. Sampling effort is fairly consistent in effort and duration, and occurs at two distinct periods on the typical seasonal variation of temperature.
+
+```{r}
+# How Many stations do we typically have in a season:
+stations <- mab %>% 
+  distinct(year = est_year, season, area, station, tow, decdeg_beglon, decdeg_beglat, est_towdate)
+
+station_effort_p <- stations %>% 
+  group_by(year, season, area) %>% 
+  summarise(n_stations = n()) %>% 
+  ggplot(aes(x = year, y = n_stations, color = season)) +
+  geom_line(show.legend = F, linewidth =1) +
+  scale_y_continuous(limits = c(0, 70)) +
+  scale_color_gmri() +
+  facet_wrap(~area, scales = "free", ncol = 1) + 
+  labs(x = "Year", 
+       y = "Survey Stations", 
+       title = "How Much Do We Sample?")
+
+
+# How Much Time Does it Take to Cover that Effort
+# How Many stations do we typically have in a season:
+sample_periods <- mab %>% 
+  distinct(year = est_year, season, area, station, tow, decdeg_beglon, decdeg_beglat, est_towdate) %>% 
+  group_by(year, area, season) %>% 
+  summarise(seas_start = min(est_towdate),
+            seas_end = max(est_towdate),
+            seas_length = max(est_towdate) - min(est_towdate),
+            .groups = "drop")  %>% 
+  mutate(
+    seas_start = (as.Date("2000-01-01") + yday(seas_start)-1), 
+    seas_end = (as.Date("2000-01-01") + yday(seas_end)-1))
+
+# When do they Start/End
+effort_when_p <- sample_periods %>% 
+  ggplot() +
+  geom_segment(
+    aes(x = year, xend = year, 
+        y = seas_start, yend = seas_end, color = season),
+    show.legend = F, linewidth =1) +
+  scale_color_gmri() +
+  facet_wrap(~area, scales = "free", ncol = 1) + 
+  scale_y_date(
+    date_breaks = "1 month", date_labels = "%b",
+    limits = as.Date(c("2000-01-01", "2000-12-31"))) +
+  labs(x = "Year", 
+       y = "Calendar Date", 
+       title = "When Are We Sampling?" )
+
+
+
+# How Long is the season
+season_length_p <- sample_periods %>% 
+  ggplot(aes(x = year, y = seas_length, color = season)) +
+  geom_line(linewidth =1) +
+  scale_color_gmri() +
+  scale_y_continuous(limits = c(0, 30)) +
+  facet_wrap(~area, scales = "free", ncol = 1) + 
+  labs(x = "Year", y = "Elapsed Time (days)", 
+       title =  "How Long Does it Take?")
+
+
+
+# What are the average seasonal bookends:
+mab_seas_bookends <-  sample_periods %>% 
+  group_by(season) %>% 
+  summarise(
+    avg_start = mean(seas_start),
+    avg_end = mean(seas_end)) 
+
+
+# What is happening during that time of year
+mab_glorys <- read_csv(
+  str_c(cs_path("res", "GLORYS/Trawl_EPU_surfbot_timeseries"),
+        "GLORYs_surfbottemp_mid_atlantic_bight_strata.csv"))
+
+
+
+# Plot the temperature cycle
+sst_p <- mab_glorys %>% 
+  mutate(
+    doy = yday(time),
+    flat_date = as.Date("2000-01-01") + doy-1) %>% 
+  pivot_longer(
+    cols = ends_with("temp"),
+    names_to = "var", 
+    values_to = "temperature") %>% 
+  ggplot() +
+  geom_rect(
+    data = mab_seas_bookends,
+    aes(xmin = avg_start, xmax = avg_end, 
+        ymin = -Inf, ymax = Inf, fill = season), alpha = 0.4) +
+  geom_line(
+    aes(flat_date, temperature, group = year(time)), 
+    alpha = 0.25, color = "gray50", linewidth = 0.8) +
+  facet_wrap(~var, ncol = 1) +
+  scale_fill_gmri() +
+  scale_x_date(date_breaks = "1 month", date_labels = "%b") +
+  labs(x = "Calendar Date", y = "SST", title = "Whats Happening\nOceanographically")
+
+
+(station_effort_p /season_length_p ) | effort_when_p / sst_p
+```
+
+
+```{r}
+# How far apart are they on average:
+# How much area are we trying to speak to:
+
+# Shapes
+new_england <- ne_states("united states of america", returnclass = "sf")
+mab_area <- read_sf(here::here("Data/raw", "nmfs_trawl_regions_collection.geojson")) %>% 
+  filter(area == "Mid-Atlantic Bight") %>% 
+  st_as_sf()
+
+# Pull data for one year
+map_yr <- 2000
+map_yr_df <- stations %>% 
+  sf::st_as_sf(coords = c("decdeg_beglon", "decdeg_beglat"), 
+               crs = 4326, remove = F) %>% 
+  mutate(yr_seas = str_c(year, season, sep = "XX")) %>% 
+  filter(year == map_yr) %>% 
+  arrange(est_towdate)
+
+map_yr_bookends <- map_yr_df %>% 
+  split(.$season) %>% 
+  map_dfr(~.x %>% 
+    filter(est_towdate== max(est_towdate) | est_towdate == min(est_towdate)))
+
+
+
+# Make a map of that year
+ggplot() +
+  geom_sf(data = new_england) +
+  geom_sf(data = mab_area, 
+          aes(fill = area), alpha = 0.2, color = "gray80") +
+  geom_sf(
+    data = map_yr_df,
+    #data = st_buffer(map_yr_df, dist = 32000),
+    aes(color = season), size = 0.5) +
+  geom_path(
+    data = map_yr_df,
+    aes(x = decdeg_beglon, decdeg_beglat, group = season),
+    linewidth = 0.3, linetype = 3) +
+  geom_label(data = map_yr_bookends,
+             aes(decdeg_beglon, decdeg_beglat, label = str_sub(est_towdate, 7,10))) +
+  scale_color_gmri() +
+  facet_wrap(~season) +
+  coord_sf(xlim = c(-77, -72.8), ylim = c(35.5, 40)) +
+  theme(panel.grid.major = element_blank()) +
+  labs(
+    title = str_c("Example Sample Coverage: ", map_yr),
+    fill = "Area",
+    color = "Survey Seeason")
+
+```
+
+## Effort In Numbers:
+
+
+The area swept of a "standard tow" of the albatross gear was found in the `noaa-edab::survdat` repository to be **0.0384** $km^2$.
+
+```{r}
+# How much do we typically tow a season
+avg_seas_effort <- stations %>% 
+  group_by(year, season, area) %>% 
+  summarise(effort = sum(n())) %>% 
+  pull(effort) %>% 
+  mean()
+
+# How long is it usually
+seas_avg <- sample_periods %>% pull(seas_length) %>% mean()
+
+
+# How much area do we survey?
+
+# Area of the region
+mab_area_m2 <- st_area(st_union(mab_area)) #/ 1000000 # manual unit change
+mab_area_km2 <- as.numeric(measurements::conv_unit(mab_area_m2, "m2", "km2"))
+
+# area of one tow
+single_tow_area <- 0.0384
+
+# fraction
+area_pct <- ((single_tow_area * avg_seas_effort) / mab_area_km2) * 100
+
+
+```
+
+**In a typical season in the MAB:** 
+
+NOAA samples `r round(avg_seas_effort)` tows on average, taking place over a `r round(seas_avg)` day period. 
+
+Over each season the trawl sampling will cover `r area_pct`% of the total bottom surface of the Mid-Atlantic Bight as a region.
+
+Station locations are selected at random locations, with effort allocation stratified by depth strata. 
+
+```{r}
+# Typical Distance
+test_sf <- map_yr_df %>% filter(season == "Spring")
+test_dist <- map_yr_df %>% filter(season == "Spring") %>% st_distance()
+test_nearest <- test_sf %>% st_nearest_feature()
+
+# Get those distances, pita
+test_sf$nearest_station <- 0
+for (i in 1:nrow(test_sf)) {
+  test_sf$nearest_station[i] <- test_dist[i, test_nearest[i] ]
+  
+}
+test_sf$nearest_station %>% mean()
+
+# Do them all
+closest_stations <- stations %>% 
+  sf::st_as_sf(coords = c("decdeg_beglon", "decdeg_beglat"), 
+               crs = 4326, remove = F) %>% 
+  mutate(yr_seas = str_c(year, season, sep = "XX")) %>% 
+  split(.$yr_seas) %>% 
+  map_dfr(function(season_subset){
+    
+    dist_mat <- st_distance(season_subset)
+    nearest_idx <- st_nearest_feature(season_subset)
+    
+    # Get those distances, pita
+    season_subset$nearest_station <- 0
+    for (i in 1:nrow(season_subset)) {
+      season_subset$nearest_station[i] <- dist_mat[i, nearest_idx[i] ]
+      
+    }
+    
+    return(season_subset)
+    
+  })
+
+# What is the typical distance?
+avg_dist <- mean(closest_stations$nearest_station, na.rm = T) / 1000
+```
+
+The average distance between stations in the MAB in a given season is `r round(avg_dist)`km apart.
+
+## Is This Dataset Sufficient?
+
+In most cases the trawl survey is the only fisheries independent dataset available, and for many use-cases I do believe that after so many years of standard operation we can make accurate inferences about things like species preferences and other life history parameters.
+
+I do often wonder though, whether we are beyond the limit of what we can reliably* learn from this dataset, as we chase higher-resolution results from a dataset that was never intended to provide details at those resolutions.
+
+
+### Consideration 1: Habitat Heterogeneity
+
+Its intuitive to think that species may have increased abundances near habitat features that provide some sort benefit to a species: protection from predators, forage opportunities, structure.
+
+The seafloor is not uniform and we can resolve differential abundance patterns in space through the use of spatially explicit SDMs.
+
+As an example, here is the long-term biomass spatial patterning for a species:
+
+```{r}
+#
+coca_path <- cs_path("mills", "Projects/COCA19_Projections/mod_fits")
+sd_vast <- read_rds(str_c(coca_path, "SpinyDogfish_full_fitted_vast.rds"))
+
+
+dens_dep_range <- sd_vast$Report$Range_raw1 # density dependent
+dens_ind_range <- sd_vast$Report$Range_raw2 # density independent
+
+```
+
+For Spiny dogfish, our VAST model used for the COCA reports has two range parameters that indicate the distance up-to-which data points are statistically dependent on one another to some degree. 
+
+For this species the density dependent (how many dogfish) range is `r round(dens_dep_range)`km, and the density-independent `presence-absence` range is `r round(dens_ind_range)`.
+
+We also see that using data across all years we see persistant differences in densities in space.
+
+```{r}
+#| fig-height: 5
+
+
+# Pull out spatial random effect:
+
+# Don't know the input differences here
+spat_grid <- bind_cols(
+  data.frame(sd_vast$spatial_list$latlon_s), # Knot Coordinates
+  data.frame("Presence.Absence" = sd_vast$Report$Omegainput1_sf), 
+  data.frame("Density" = sd_vast$Report$Omegainput2_sf)) %>% 
+  pivot_longer(cols = -c(1,2), names_to = "omega", values_to = "omega_val") 
+
+# Presence Absence
+p1_map <- spat_grid %>% 
+  filter(omega == "Presence.Absence") %>% 
+  ggplot(aes(Lon, Lat)) +
+  geom_point(aes(color = omega_val), size = 0.8) +
+  facet_wrap(~omega) +
+  scale_color_distiller(palette = "RdBu") +
+  theme_dark() +
+  theme(legend.title.position = "top", legend.title = element_text(hjust = 0.5))
+
+
+
+# Density
+p2_map <- spat_grid %>% 
+  filter(omega == "Density") %>% 
+  ggplot(aes(Lon, Lat)) +
+  geom_point(aes(color = omega_val), size = 0.8) +
+  facet_wrap(~omega) +
+  scale_color_distiller(palette = "RdBu") +
+  theme_dark() +
+  theme(legend.title.position = "top", legend.title = element_text(hjust = 0.5))
+
+
+p1_map | p2_map
+```
+
+As well as different habitat use seasonally:
+
+```{r}
+# Sseasonal
+season_spat <- bind_cols(
+  data.frame(sd_vast$spatial_list$latlon_s), # Knot Coordinates
+  sd_vast$Report$Xi1_scp[,,1],
+  sd_vast$Report$Xi1_scp[,,2],
+  sd_vast$Report$Xi1_scp[,,3]) %>% 
+  setNames(c("Lat", "Lon", "Spring", "Summer", "Fall")) %>% 
+  pivot_longer(cols = -c(1,2), names_to = "season", values_to = "coef") %>% 
+  mutate(season = factor(season, levels = c("Spring", "Summer", "Fall")))
+
+
+
+season_spat %>% 
+  ggplot(aes(Lon, Lat)) +
+  geom_point(aes(color = coef), size = 0.8) +
+  facet_wrap(~season, nrow = 2) +
+  scale_color_distiller(palette = "RdBu") +
+  theme_dark() +
+  theme(legend.title.position = "top", legend.title = element_text(hjust = 0.5))
+
+```
+
+
+### MAB Community Size Spikes
+
+
+The MAB median size plot has always bothered me. I don't know why it spikes the way it does, and I don't know what to say about the community size with it being so volatile.
+
+There are 5 years where mid-atlantic bight size jumps from ~100g to 600-1200g.
+
+These years are: 1983, 1989, 1995, 1996, 2007 and these outliers are all during the spring:
+
+
+```{r}
+med_size %>% 
+  filter(area == "Mid-Atlantic Bight") %>% 
+  mutate(flag_wt = if_else(median_weight > 200, "orange", "black")) %>% 
+  #filter(flag_wt == "orange") %>% distinct(est_year)
+  ggplot() +
+    geom_line(aes(est_year, median_weight), alpha = 0.5) +
+    geom_point(aes(est_year, median_weight, color = I(flag_wt))) +
+  facet_wrap(~season, ncol = 1)
+```
+
+
+
+### MAB Outlier Communities
+
+
+
+
+```{r}
+flag_yrs <- c(1983, 1989, 1995, 1996, 2007)
+
+#Is It spatial?
+mab_stations_sf <- stations %>% 
+  sf::st_as_sf(
+    coords = c("decdeg_beglon", "decdeg_beglat"), 
+    crs = 4326, remove = F)
+
+stations_check <- mab_stations_sf %>% 
+  filter(season == "Spring") %>% 
+  mutate(flag_stations = if_else(year %in% flag_yrs, T, F),
+         flag_size = if_else(flag_stations, 1, 0.35),
+         flag_alpha = if_else(flag_stations, 1, 0.3),
+         flag_col = if_else(flag_stations, "orange", "gray50"))
+
+
+# Make a map of that year
+ggplot() +
+  geom_sf(data = new_england) +
+  # geom_sf(data = mab_area, 
+  #         aes(fill = area), alpha = 0.2, color = "gray80") +
+  geom_sf(
+    data = filter(stations_check, !flag_stations),
+    aes(size = I(flag_size), alpha = I(flag_alpha), color = I(flag_col))) +
+  geom_sf(
+    data = filter(stations_check, flag_stations),
+    aes(size = I(flag_size), alpha = I(flag_alpha), color = I(flag_col))) +
+  coord_sf(xlim = c(-77, -72.8), ylim = c(35.5, 40)) +
+  #facet_wrap(~year) +
+  theme(panel.grid.major = element_blank()) +
+  labs(
+    title = "Are we Sampling Some Unique\nSpace Those Years?",
+    fill = "Area",
+    color = "Survey Seeason")
+
+
+```
+
+Is there some larger species that is only present then? Yea, its really just spiny dogfish...
+
+```{r}
+
+# Filter to individuals larger than the median size
+# Take the smaller end of the median weights for those years
+set.seed(123)
+min_size_filter <- med_size %>% 
+  filter(area == "Mid-Atlantic Bight",
+         est_year %in% flag_yrs,
+         season == "Spring") %>% 
+  pull(median_weight) %>% min()
+
+
+
+mab %>% 
+  filter(est_year %in% flag_yrs,
+         season == "Spring") %>% 
+  filter(ind_weight_g > min_size_filter) %>% 
+  group_by(est_year, area, season, comname) %>% 
+  summarise(abundance = sum(numlen, na.rm = T)) %>% 
+  arrange(desc(abundance)) %>% 
+  gt::gt() %>% 
+  tab_header(title = str_c("Outlier Years, Fish > ", round(min_size_filter), "g")) %>% 
+  tab_style(
+    style = list(
+      cell_fill(color = "#9AFF9A"), 
+      cell_text(color = "black")),
+    locations = cells_body(
+      rows = abundance >= 100) 
+  )
+```
+
+
+
+Just as an example: here are five "normal" springs:
+
+```{r}
+# Filter to larger individuals by those same standards
+
+# Plot Five random years as a comparison
+mab %>% 
+  filter(!est_year %in% flag_yrs,
+         season == "Spring") %>% 
+  filter(ind_weight_g > min_size_filter) %>% 
+  slice_sample(n = 5) %>% 
+  group_by(est_year, area, season, comname) %>% 
+  summarise(abundance = sum(numlen, na.rm = T)) %>% 
+  arrange(desc(abundance)) %>% 
+  gt::gt() %>% 
+  tab_header(title = str_c("Typical Year, Fish > ", round(min_size_filter), "g")) %>% 
+  tab_style(
+    style = list(
+      cell_fill(color = "#9AFF9A"), 
+      cell_text(color = "black")),
+    locations = cells_body(
+      rows = abundance >= 100) 
+  )
+```
+

@@ -62,7 +62,8 @@ area_df <- data.frame(
 length_binspectra <- group_binspecies_spectra(
   ss_input = finfish_trawl,
   grouping_vars = c("est_year", "season", "survey_area"),
-  abundance_vals = "numlen_adj",
+  #abundance_vals = "numlen_adj",
+  abundance_vals = "numlen",
   length_vals = "length_cm",
   use_weight = FALSE,
   isd_xmin = 1,
@@ -96,7 +97,8 @@ length_binspectra %>%
 length_binspectra_shelf <- group_binspecies_spectra(
   ss_input = mutate(finfish_trawl, survey_area = "Northeast Shelf"),
   grouping_vars = c("est_year", "season", "survey_area"),
-  abundance_vals = "numlen_adj",
+  #abundance_vals = "numlen_adj",
+  abundance_vals = "numlen",
   length_vals = "length_cm",
   use_weight = FALSE,
   isd_xmin = 1,
@@ -134,7 +136,8 @@ length_binspectra_shelf %>%
 length_binspectra_wigley <- group_binspecies_spectra(
   ss_input = trawl_wigley,
   grouping_vars = c("est_year", "season", "survey_area"),
-  abundance_vals = "numlen_adj",
+  #abundance_vals = "numlen_adj",
+  abundance_vals = "numlen",
   length_vals = "length_cm",
   use_weight = FALSE,
   global_min = TRUE,
@@ -173,7 +176,8 @@ length_binspectra_wigley %>%
 bodymass_binspectra_wigley <- group_binspecies_spectra(
   ss_input = trawl_wigley,
   grouping_vars = c("est_year", "season", "survey_area"),
-  abundance_vals = "numlen_adj",
+  #abundance_vals = "numlen_adj",
+  abundance_vals = "numlen",
   length_vals = "length_cm",
   use_weight = TRUE,
   isd_xmin = 1,
@@ -207,7 +211,8 @@ bodymass_binspectra_wigley %>%
 bodymass_binspectra_wigley_shelf <- group_binspecies_spectra(
   ss_input = mutate(trawl_wigley, survey_area = "Northeast Shelf"),
   grouping_vars = c("est_year", "season", "survey_area"),
-  abundance_vals = "numlen_adj",
+  #abundance_vals = "numlen_adj",
+  abundance_vals = "numlen",
   length_vals = "length_cm",
   use_weight = TRUE,
   isd_xmin = 1,
@@ -263,7 +268,8 @@ wigley_in_16g <- trawl_wigley %>%
 mle_results_16g <- group_binspecies_spectra(
   ss_input = wigley_in_16g,
   grouping_vars = c("est_year", "season", "survey_area"),
-  abundance_vals = "numlen_adj",
+  #abundance_vals = "numlen_adj",
+  abundance_vals = "numlen",
   length_vals = "length_cm",
   use_weight = TRUE,
   isd_xmin = 16,
@@ -300,7 +306,7 @@ mle_results_16g %>%
   facet_wrap(~survey_area, ncol = 1, scales = "free") +
   scale_color_gmri() +
   labs(title = "Bodymass Spectra - MLE Bins Method Wigley",
-       subtitle = "Floating xmin = 1g, xmax = max(ind_weight_g)",
+       subtitle = "Fixed xmin = 16g, xmax = max(ind_weight_g)",
        y = "b",
        x = "Year",
        color = "Season")
@@ -314,6 +320,41 @@ mle_results_16g %>%
 # write_csv(
 #   mle_results_16g,
 #   here::here("Data/processed/wigley_species_min16_bodymass_spectra.csv"))
+
+
+
+
+####__________________________####
+
+
+####  Saving Spectra Exponent Results  ####
+
+# Save Regional subsets
+write_csv(length_binspectra, here::here("Data/processed/finfish_length_spectra.csv"))
+write_csv(length_binspectra_wigley, here::here("Data/processed/wigley_species_length_spectra.csv"))
+write_csv(bodymass_binspectra_wigley, here::here("Data/processed/wigley_species_bodymass_spectra.csv"))
+
+# Save Shelfwide subsets
+write_csv(length_binspectra_shelf, here::here("Data/processed/shelfwide_finfish_length_spectra.csv"))
+write_csv(bodymass_binspectra_wigley_shelf, here::here("Data/processed/shelfwide_wigley_species_bodymass_spectra.csv"))
+
+# Saving Shifted Wmin Spectra:
+
+# dynamic wmin spectra:
+write_csv(peak_chase_results, here::here("Data/processed/wigley_species_l2peaks_bmspectra.csv"))
+
+# Save the data used for shifting peak fits
+write_csv(wigley_in_new, here::here("Data/processed/wigley_species_trawl_wmin_filtered.csv"))
+
+# universal 16g wmin:
+write_csv(mle_results_16g, here::here("Data/processed/wigley_species_min16_bodymass_spectra.csv"))
+
+
+
+
+
+
+
 
 
 
@@ -346,17 +387,18 @@ wigley_in_new <- trawl_wigley %>%
 # Re-Run the MLE method to get new data with those cutoffs
 # drops survey_areas not in the pre-ordained list
 peak_chase_results <- group_binspecies_spectra(
-    ss_input       = wigley_in_new,
-    grouping_vars  = c("est_year", "season", "survey_area"),
-    abundance_vals = "numlen_adj",
-    length_vals    = "length_cm",
-    use_weight     = TRUE,
-    isd_xmin       = NULL,
-    global_min     = FALSE,
-    isd_xmax       = NULL,
-    global_max     = FALSE,
-    bin_width      = 1,
-    vdiff          = 2) %>%
+  ss_input       = wigley_in_new,
+  grouping_vars  = c("est_year", "season", "survey_area"),
+  #abundance_vals = "numlen_adj",
+  abundance_vals = "numlen",
+  length_vals    = "length_cm",
+  use_weight     = TRUE,
+  isd_xmin       = NULL,
+  global_min     = FALSE,
+  isd_xmax       = NULL,
+  global_max     = FALSE,
+  bin_width      = 1,
+  vdiff          = 2) %>%
   mutate(est_year = as.numeric(est_year)) %>%
   left_join(area_df)
 
@@ -409,30 +451,3 @@ peak_chase_results %>%
 
 
 
-
-
-
-####__________________________####
-
-
-####  Saving Spectra Exponent Results  ####
-
-# Save Regional subsets
-write_csv(length_binspectra, here::here("Data/processed/finfish_length_spectra.csv"))
-write_csv(length_binspectra_wigley, here::here("Data/processed/wigley_species_length_spectra.csv"))
-write_csv(bodymass_binspectra_wigley, here::here("Data/processed/wigley_species_bodymass_spectra.csv"))
-
-# Save Shelfwide subsets
-write_csv(length_binspectra_shelf, here::here("Data/processed/shelfwide_finfish_length_spectra.csv"))
-write_csv(bodymass_binspectra_wigley_shelf, here::here("Data/processed/shelfwide_wigley_species_bodymass_spectra.csv"))
-
-# Saving Shifted Wmin Spectra:
-
-# dynamic wmin spectra:
-write_csv(peak_chase_results, here::here("Data/processed/wigley_species_l2peaks_bmspectra.csv"))
-
-# Save the data used for shifting peak fits
-write_csv(wigley_in_new, here::here("Data/processed/wigley_species_trawl_wmin_filtered.csv"))
-
-# universal 16g wmin:
-write_csv(mle_results_16g, here::here("Data/processed/wigley_species_min16_bodymass_spectra.csv"))
